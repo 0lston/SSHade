@@ -1,0 +1,115 @@
+Metadata-Version: 2.2
+Name: ssh-python
+Version: 1.1.1
+Summary: libssh C library bindings for Python.
+Home-page: https://github.com/ParallelSSH/ssh-python
+Author: Panos Kittenis
+Author-email: 22e889d8@opayq.com
+License: LGPLv2.1
+Platform: any
+Classifier: Development Status :: 4 - Beta
+Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: C
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: System :: Shells
+Classifier: Topic :: System :: Networking
+Classifier: Topic :: Software Development :: Libraries
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Operating System :: POSIX
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Operating System :: POSIX :: BSD
+Classifier: Operating System :: MacOS :: MacOS X
+Classifier: Operating System :: Microsoft :: Windows
+License-File: LICENSE
+License-File: COPYING
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: home-page
+Dynamic: license
+Dynamic: platform
+Dynamic: summary
+
+ssh-python
+============
+
+Bindings for libssh_ C library.
+
+.. image:: https://img.shields.io/badge/License-LGPL%20v2-blue.svg
+   :target: https://pypi.python.org/pypi/ssh-python
+   :alt: License
+.. image:: https://img.shields.io/pypi/v/ssh-python.svg
+   :target: https://pypi.python.org/pypi/ssh-python
+   :alt: Latest Version
+.. image:: https://circleci.com/gh/ParallelSSH/ssh-python/tree/master.svg?style=shield
+   :target: https://circleci.com/gh/ParallelSSH/ssh-python/tree/master
+.. image:: https://img.shields.io/pypi/wheel/ssh-python.svg
+   :target: https://pypi.python.org/pypi/ssh-python
+.. image:: https://img.shields.io/pypi/pyversions/ssh-python.svg
+   :target: https://pypi.python.org/pypi/ssh-python
+.. image:: https://ci.appveyor.com/api/projects/status/2t4bmmtjvfy5s1in/branch/master?svg=true
+   :target: https://ci.appveyor.com/project/pkittenis/ssh-python
+.. image:: https://readthedocs.org/projects/ssh-python/badge/?version=latest
+   :target: http://ssh-python.readthedocs.org/en/latest/
+   :alt: Latest documentation
+
+
+Installation
+_____________
+
+Binary wheels are provided for Linux (manylinux 2014, x86_64 and aarch64), OSX (12, 13 and 14 for brew Python), and Windows 64-bit (Python 3.7+).
+
+Wheels have *no dependencies*.
+
+For building from source, see `documentation <https://ssh-python.readthedocs.io/en/latest/installation.html#building-from-source>`_.
+
+
+.. code-block:: shell
+
+   pip install ssh-python
+
+Pip may need to be updated to be able to install binary wheels.
+
+.. code-block:: shell
+
+   pip install -U pip
+   pip install ssh-python
+
+
+Quick Start
+_____________
+
+See `command execution script <https://github.com/ParallelSSH/ssh-python/blob/master/examples/exec.py>`_ for complete example.
+
+Features
+_________
+
+The library uses `Cython`_ based native code extensions as wrappers to ``libssh``.
+
+* Thread safe - GIL released as much as possible
+
+  * libssh threading limitations apply - anything not supported in C is not supported in Python
+* Very low overhead thin wrapper
+* Object oriented
+
+  * Memory freed automatically and safely as objects are garbage collected by Python
+* Uses Python semantics where applicable
+
+  * channel/file handle context manager support
+  * channel/file handle iterator support
+* Raises low level C errors as Python exceptions
+
+
+.. _libssh: https://www.libssh.org
+.. _Cython: https://www.cython.org

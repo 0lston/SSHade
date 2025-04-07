@@ -1,0 +1,435 @@
+ERROR:root:Error handling connection: 
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+ERROR:pssh.clients.base.single:No available addresses from [('127.0.0.1', 22)]
+ERROR:pssh.clients.base.parallel:Failed to run on host 127.0.0.1 - [Errno 111] Connection refused
+ERROR:root:Error executing command: [Errno 111] Connection refused
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 44760
+INFO:root:Incoming connection established.
+INFO:root:Connection closed.
+INFO:asyncssh:[conn=1] Accepted SSH client connection
+INFO:asyncssh:[conn=1]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=1]   Peer address: 127.0.0.1, port 48156
+INFO:root:Incoming connection established.
+INFO:asyncssh:[conn=1] Beginning auth for user implant
+INFO:root:Connection closed.
+INFO:asyncssh:[conn=2] Accepted SSH client connection
+INFO:asyncssh:[conn=2]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=2]   Peer address: 127.0.0.1, port 33160
+INFO:root:Incoming connection established.
+INFO:asyncssh:[conn=2] Beginning auth for user implant
+INFO:root:Connection closed.
+INFO:asyncssh:[conn=3] Accepted SSH client connection
+INFO:asyncssh:[conn=3]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=3]   Peer address: 127.0.0.1, port 48816
+INFO:root:Incoming connection established.
+INFO:asyncssh:[conn=3] Beginning auth for user implant
+INFO:root:Connection closed.
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 48924
+INFO:root:Incoming connection established.
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Connection closed.
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 59544
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+DEBUG:asyncssh:[conn=0] Uncaught exception
+Traceback (most recent call last):
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 1169, in _reap_task
+    task.result()
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 2509, in _finish_userauth
+    self.send_userauth_success()
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 2089, in send_userauth_success
+    self._owner.auth_completed()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ImplantHandler' object has no attribute 'auth_completed'
+ERROR:root:Connection lost: 'ImplantHandler' object has no attribute 'auth_completed'
+INFO:asyncssh:[conn=1] Accepted SSH client connection
+INFO:asyncssh:[conn=1]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=1]   Peer address: 127.0.0.1, port 59556
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=1] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=1] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=1] Requesting key exchange
+DEBUG:asyncssh:[conn=1] Received key exchange request
+DEBUG:asyncssh:[conn=1] Beginning key exchange
+DEBUG:asyncssh:[conn=1] Completed key exchange
+INFO:asyncssh:[conn=1] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=1] Auth for user implant succeeded
+DEBUG:asyncssh:[conn=1] Uncaught exception
+Traceback (most recent call last):
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 1169, in _reap_task
+    task.result()
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 2509, in _finish_userauth
+    self.send_userauth_success()
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 2089, in send_userauth_success
+    self._owner.auth_completed()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ImplantHandler' object has no attribute 'auth_completed'
+ERROR:root:Connection lost: 'ImplantHandler' object has no attribute 'auth_completed'
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 33902
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+DEBUG:asyncssh:[conn=0] Uncaught exception
+Traceback (most recent call last):
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 1169, in _reap_task
+    task.result()
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 2509, in _finish_userauth
+    self.send_userauth_success()
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 2089, in send_userauth_success
+    self._owner.auth_completed()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ImplantHandler' object has no attribute 'auth_completed'
+ERROR:root:Connection lost: 'ImplantHandler' object has no attribute 'auth_completed'
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 41278
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+DEBUG:asyncssh:[conn=0] Open failed for channel type session: Session refused
+DEBUG:asyncssh:[conn=0] Received disconnect: disconnected by user (11)
+INFO:root:Connection closed gracefully.
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 60586
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+INFO:root:Session requested by client.
+DEBUG:asyncssh:[conn=0, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=0, chan=0] New SSH session requested
+INFO:root:Channel opened.
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal size: 89x21 (1424x672 pixels)
+INFO:asyncssh:[conn=0, chan=0]   PTY created
+INFO:asyncssh:[conn=0, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=0, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=0, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=0, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=0, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 51840
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+INFO:root:Session requested by client.
+DEBUG:asyncssh:[conn=0, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=0, chan=0] New SSH session requested
+INFO:root:Channel opened.
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal size: 89x21 (1424x672 pixels)
+INFO:root:PTY requested: Terminal type=tmux-256color, Size=(89, 21, 1424, 672)
+INFO:asyncssh:[conn=0, chan=0]   PTY created
+INFO:asyncssh:[conn=0, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=0, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=0, chan=0]   Interactive shell requested
+INFO:root:Interactive shell requested.
+DEBUG:asyncssh:[conn=0] Uncaught exception
+Traceback (most recent call last):
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 1523, in _recv_data
+    while self._inpbuf and self._recv_handler():
+                           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/connection.py", line 1683, in _recv_packet
+    result = handler.process_packet(pkttype, seq, packet)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/packet.py", line 238, in process_packet
+    return self._packet_handlers[pkttype](self, pkttype,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/channel.py", line 582, in _process_data
+    self._accept_data(data)
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/channel.py", line 405, in _accept_data
+    self._deliver_data(data, datatype)
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/channel.py", line 382, in _deliver_data
+    self._session.data_received(decoded_data, datatype)
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/editor.py", line 949, in data_received
+    self._editor.process_input(data, datatype)
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/editor.py", line 686, in process_input
+    cast(_CharHandler, key_state)(self)
+  File "/home/fren/olston/lqraya/c2-dev/.venv/lib/python3.12/site-packages/asyncssh/editor.py", line 454, in _end_line
+    self._session.data_received(line + '\n', None)
+  File "/home/fren/olston/lqraya/c2-dev/server/handlers.py", line 80, in data_received
+    self._input_buffer += data.decode()
+                          ^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'decode'. Did you mean: 'encode'?
+INFO:asyncssh:[conn=0, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=0, chan=0] Channel closed: 'str' object has no attribute 'decode'
+ERROR:root:Connection lost: 'str' object has no attribute 'decode'
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 54954
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+INFO:root:Session requested by implant.
+DEBUG:asyncssh:[conn=0, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=0, chan=0] New SSH session requested
+INFO:root:Channel opened with implant.
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal size: 89x21 (1424x672 pixels)
+INFO:asyncssh:[conn=0, chan=0]   PTY created
+INFO:asyncssh:[conn=0, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=0, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=0, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=0, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=0, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 45310
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+INFO:root:Session requested by implant.
+DEBUG:asyncssh:[conn=0, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=0, chan=0] New SSH session requested
+INFO:root:Channel opened with implant.
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal size: 89x21 (1424x672 pixels)
+INFO:asyncssh:[conn=0, chan=0]   PTY created
+INFO:asyncssh:[conn=0, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=0, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=0, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=0, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=0, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
+INFO:asyncssh:[conn=1] Accepted SSH client connection
+INFO:asyncssh:[conn=1]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=1]   Peer address: 127.0.0.1, port 34388
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=1] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=1] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=1] Requesting key exchange
+DEBUG:asyncssh:[conn=1] Received key exchange request
+DEBUG:asyncssh:[conn=1] Beginning key exchange
+DEBUG:asyncssh:[conn=1] Completed key exchange
+INFO:asyncssh:[conn=1] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=1] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=1] Sending server host keys disabled
+INFO:root:Session requested by implant.
+DEBUG:asyncssh:[conn=1, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=1, chan=0] New SSH session requested
+INFO:root:Channel opened with implant.
+DEBUG:asyncssh:[conn=1, chan=0]   Terminal type: xterm-256color
+DEBUG:asyncssh:[conn=1, chan=0]   Terminal size: 184x43
+INFO:asyncssh:[conn=1, chan=0]   PTY created
+INFO:asyncssh:[conn=1, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=1, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=1, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=1, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=1, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 60388
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+INFO:root:Session requested by implant.
+DEBUG:asyncssh:[conn=0, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=0, chan=0] New SSH session requested
+INFO:root:Channel opened with implant.
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal size: 89x20 (1424x640 pixels)
+INFO:asyncssh:[conn=0, chan=0]   PTY created
+INFO:asyncssh:[conn=0, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=0, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=0, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=0, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=0, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
+DEBUG:asyncio:Using selector: EpollSelector
+INFO:asyncssh:Creating SSH listener on 0.0.0.0, port 2222
+INFO:asyncssh:[conn=0] Accepted SSH client connection
+INFO:asyncssh:[conn=0]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=0]   Peer address: 127.0.0.1, port 59978
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=0] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=0] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=0] Requesting key exchange
+DEBUG:asyncssh:[conn=0] Received key exchange request
+DEBUG:asyncssh:[conn=0] Beginning key exchange
+DEBUG:asyncssh:[conn=0] Completed key exchange
+INFO:asyncssh:[conn=0] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=0] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=0] Sending server host keys disabled
+INFO:root:Session requested by implant.
+DEBUG:asyncssh:[conn=0, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=0, chan=0] New SSH session requested
+INFO:root:Channel opened with implant.
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=0, chan=0]   Terminal size: 89x21 (1424x672 pixels)
+INFO:asyncssh:[conn=0, chan=0]   PTY created
+INFO:asyncssh:[conn=0, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=0, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=0, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=0, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=0, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
+INFO:asyncssh:[conn=1] Accepted SSH client connection
+INFO:asyncssh:[conn=1]   Local address: 127.0.0.1, port 2222
+INFO:asyncssh:[conn=1]   Peer address: 127.0.0.1, port 45750
+INFO:root:Incoming connection established.
+DEBUG:asyncssh:[conn=1] Sending version SSH-2.0-AsyncSSH_2.20.0
+DEBUG:asyncssh:[conn=1] Received version SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8
+DEBUG:asyncssh:[conn=1] Requesting key exchange
+DEBUG:asyncssh:[conn=1] Received key exchange request
+DEBUG:asyncssh:[conn=1] Beginning key exchange
+DEBUG:asyncssh:[conn=1] Completed key exchange
+INFO:asyncssh:[conn=1] Beginning auth for user implant
+INFO:root:Authenticating user: implant
+INFO:asyncssh:[conn=1] Auth for user implant succeeded
+INFO:root:Authentication completed.
+INFO:asyncssh:[conn=1] Sending server host keys disabled
+INFO:root:Session requested by implant.
+DEBUG:asyncssh:[conn=1, chan=0] Set write buffer limits: low-water=16384, high-water=65536
+INFO:asyncssh:[conn=1, chan=0] New SSH session requested
+INFO:root:Channel opened with implant.
+DEBUG:asyncssh:[conn=1, chan=0]   Terminal type: tmux-256color
+DEBUG:asyncssh:[conn=1, chan=0]   Terminal size: 89x21 (1424x672 pixels)
+INFO:asyncssh:[conn=1, chan=0]   PTY created
+INFO:asyncssh:[conn=1, chan=0]   Line editor enabled
+DEBUG:asyncssh:[conn=1, chan=0]   Env: LANG=en_US.UTF-8
+INFO:asyncssh:[conn=1, chan=0]   Interactive shell requested
+INFO:asyncssh:[conn=1, chan=0] Closing channel due to connection close
+INFO:asyncssh:[conn=1, chan=0] Channel closed: Connection lost
+ERROR:root:Connection lost: Connection lost
