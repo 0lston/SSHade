@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  c2server:
+    build: .
+    ports:
+      - "2222:2222"  # SSH transport
+      - "8080:8080"  # HTTP transport
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      # Optional: Mount a config file
+      # - ./config.yml:/app/config.yml
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    # tty and stdin_open are needed for interactive CLI
+    tty: true
+    stdin_open: true
+    command: python -m src.main --transports ssh http

@@ -1,1 +1,4 @@
 .venv/
+archive/
+c2server/logs/
+c2server/data/
