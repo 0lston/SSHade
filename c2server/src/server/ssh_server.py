@@ -21,6 +21,11 @@ class SSHServerInterface(paramiko.ServerInterface):
             return paramiko.OPEN_SUCCEEDED
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
     
+    def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
+        # Accept PTY request
+        print(f"Client requested PTY: {term} {width}x{height}")
+        return True
+    
     def check_auth_password(self, username, password):
         if (username == self.config['username'] and 
             password == self.config['password']):

@@ -102,6 +102,12 @@ class CommandHandler:
             
         elif cmd == "info":
             self._show_client_info()
+        
+        elif cmd == "remove":
+            if len(args) < 2:
+                print("Usage: remove <client_id>")
+                return
+            self._remove_client(args[1])
             
         elif cmd == "shell":
             self._interactive_shell()
@@ -206,6 +212,23 @@ class CommandHandler:
         if info['capabilities']:
             print(f"Capabilities: {', '.join(info['capabilities'])}")
         print("-" * 50)
+
+
+    def _remove_client(self, client_id: str):
+        """Remove a client from the list"""
+        if client_id in self.clients:
+            del self.clients[client_id]
+            print(f"Client {client_id} removed")
+        else:
+            print(f"Client {client_id} not found")
+        # If the removed client was the current one, reset current client
+        if self.current_client_id == client_id:
+            self.current_client_id = None
+            print("Current client reset to None")
+        # Notify about client removal
+        print(f"Client {client_id} disconnected")
+        print(f"{self._get_prompt()}", end="", flush=True)
+
     
     def _send_command(self, command: str) -> Optional[str]:
         """Send a command to the current client"""
