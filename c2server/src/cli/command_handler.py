@@ -6,6 +6,8 @@ import shlex
 from typing import Dict, Optional, List, Any
 import json
 import time
+import signal
+import readline
 
 from ..session.client_session import ClientSession
 from ..utils.file_transfer import FileTransfer
@@ -21,9 +23,71 @@ class CommandHandler:
         self.current_client_id = None
         self.running = False
         self.file_transfer = FileTransfer(config.get('download_dir', 'data/downloads'))
+        self.in_shell = False  # Add this flag to track shell mode
+        self.original_sigint = None  # Store original signal handler
         
+
+    def _interactive_shell(self):
+        if not self.current_client_id or self.current_client_id not in self.clients:
+            print("No client selected")
+            return
+            
+        client = self.clients[self.current_client_id]
+        if not client.is_active:
+            print("Selected client is not active")
+            return
+
+        print(f"\nEntering interactive shell with {client}")
+        print("Type 'exit' to return to the C2 console\n")
+
+        # No signal handler swapping needed
+        self.in_shell = True
+        
+        try:
+            while self.in_shell and client.is_active:
+                try:
+                    if not client.channel or not client.channel.active:
+                        print("\nShell connection lost")
+                        break
+
+                    cmd = input()
+                    if cmd.lower() == "exit":
+                        break
+
+                    if cmd == '\x03':  # Ctrl+C received
+                        if client.pty_enabled:
+                            client.channel.send(b'\x03')
+                        continue
+
+                    if cmd.strip() == '':
+                        cmd = '\n'
+
+                    response = client.send_command(cmd)
+                    if response:
+                        print(response, end='', flush=True)
+
+                except KeyboardInterrupt:
+                    if client.pty_enabled:
+                        client.channel.send(b'\x03')
+                    print()
+                    continue
+                except EOFError:
+                    break
+                    
+        finally:
+            self.in_shell = False
+            print(f"\n{self._get_prompt()}", end="", flush=True)
+
     def start(self):
         """Start the command interface"""
+        def main_sigint_handler(signum, frame):
+            """Main console signal handler"""
+            if not self.in_shell:
+                print("\nUse 'exit' to quit")
+            
+        # Set up main console signal handler
+        signal.signal(signal.SIGINT, main_sigint_handler)
+        
         self.running = True
         logger.info("Command interface started")
         
@@ -39,7 +103,7 @@ class CommandHandler:
                 self._process_command(cmd_line)
                     
             except KeyboardInterrupt:
-                print("\nUse 'exit' to quit")
+                continue  # Handled by signal handler
             except EOFError:
                 print("\nExiting command interface")
                 self.running = False
@@ -110,11 +174,11 @@ class CommandHandler:
         cmd = args[0].lower()
         
         # Local commands
-        if cmd == "exit":
-            print("Exiting command interface (server continues running)")
+        if cmd == "quit":
+            print("Exiting command interface (server continues running)")      
             self.running = False
             
-        elif cmd == "help":
+        if cmd == "help":
             self._show_help()
             
         elif cmd == "clients":
@@ -153,9 +217,7 @@ class CommandHandler:
             
         # Send command to client
         else:
-            response = self._send_command(cmd_line)
-            if response:
-                print(response)
+            pass
     
     def _show_help(self):
         """Show help message"""
@@ -167,7 +229,7 @@ class CommandHandler:
         print("  disconnect <id>            - Disconnect and remove a client")
         print("  upload <local> <remote>    - Upload a file to the client")
         print("  download <remote>          - Download a file from the client")
-        print("  exit                       - Exit the command interface")
+        print("  quit                       - Exit the command interface")
         print("  help                       - Show this help message")
         print("  <command>                  - Send a command to the current client")
     
@@ -280,6 +342,7 @@ class CommandHandler:
             print(f"Error: {str(e)}")
             return None
     
+
     def _interactive_shell(self):
         """Enter an interactive shell with the current client"""
         if not self.current_client_id or self.current_client_id not in self.clients:
@@ -290,27 +353,58 @@ class CommandHandler:
         if not client.is_active:
             print("Selected client is not active")
             return
-            
+
+        def shell_sigint_handler(signum, frame):
+            if client.pty_enabled and client.channel and client.channel.active:
+                try:
+                    client.channel.send(b'\x03')
+                except Exception as e:
+                    logger.error(f"Error sending Ctrl+C: {e}")
+
         print(f"\nEntering interactive shell with {client}")
-        print("Type 'exit' to return to the C2 console\n")
+        print("Type 'quit' to return to the C2 console\n")
         
-        while True:
-            try:
-                cmd = input(f"{client.username}@{client.hostname}$ ")
-                if cmd.lower() == "exit":
-                    print("Returning to C2 console")
+        self.in_shell = True
+        original_sigint = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, shell_sigint_handler)
+        
+        empty_count = 0
+        
+        try:
+            while self.in_shell and client.is_active:
+                try:
+                    if not client.channel or not client.channel.active:
+                        print("\nShell connection lost")
+                        break
+                        
+                    cmd = input("")
+                    
+                    
+                    if cmd.lower() == "quit":
+                        print("Returning to C2 console")
+                        break
+
+                    elif cmd.strip() == '':
+                        cmd = '\n'
+                        
+                    response = client.send_command(cmd)
+                    if response:
+                        print(response, end='', flush=True)
+                        
+                except KeyboardInterrupt:
+                    print()  # Clean newline
                     break
-                    
-                response = client.send_command(cmd)
-                if response:
-                    print(response, end="")
-                    
-            except KeyboardInterrupt:
-                print("\nUse 'exit' to return to the C2 console")
-            except Exception as e:
-                logger.error(f"Shell error: {e}")
-                print(f"Error: {str(e)}")
-                break
+                except EOFError:
+                    print("\nExiting shell")
+                    break
+                except Exception as e:
+                    logger.error(f"Shell error: {e}")
+                    print(f"Error: {str(e)}")
+                    break
+        finally:
+            signal.signal(signal.SIGINT, original_sigint)
+            self.in_shell = False
+            print(f"\n", end="", flush=True)
     
     def _upload_file(self, local_path: str, remote_path: str):
         """Upload a file to the client"""

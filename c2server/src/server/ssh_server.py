@@ -51,7 +51,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         if self.pty_enabled:
             logger.info("Shell request accepted for PTY session")
             return True
-        return False
+        return True
         
     def check_auth_password(self, username, password):
         if (username == self.config['username'] and 
