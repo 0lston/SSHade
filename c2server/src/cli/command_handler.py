@@ -62,6 +62,32 @@ class CommandHandler:
         # Notify about new client
         print(f"\nNew client connected: {client}")
         print(f"{self._get_prompt()}", end="", flush=True)
+
+    def _disconnect_client(self, client_selector: str):
+        """Disconnect a client and remove it from the list"""
+        # Try to interpret as index first
+        try:
+            idx = int(client_selector)
+            if idx < 0 or idx >= len(self.clients):
+                print(f"Invalid client index: {idx}")
+                return
+            client_id = list(self.clients.keys())[idx]
+        except ValueError:
+            # If not a number, use as client ID
+            client_id = client_selector
+
+        if client_id not in self.clients:
+            print(f"Client not found: {client_selector}")
+            return
+
+        client = self.clients[client_id]
+        if client.disconnect():
+            self._remove_client(client_id)
+            print(f"Client {client_id} disconnected and removed")
+        else:
+            print(f"Error disconnecting client {client_id}")
+
+
     
     def _get_prompt(self):
         """Get the command prompt string"""
@@ -103,11 +129,12 @@ class CommandHandler:
         elif cmd == "info":
             self._show_client_info()
         
-        elif cmd == "remove":
+           
+        elif cmd == "disconnect":
             if len(args) < 2:
-                print("Usage: remove <client_id>")
+                print("Usage: disconnect <client_id>")
                 return
-            self._remove_client(args[1])
+            self._disconnect_client(args[1])
             
         elif cmd == "shell":
             self._interactive_shell()
@@ -137,6 +164,7 @@ class CommandHandler:
         print("  use <id>                   - Switch to a specific client")
         print("  info                       - Show detailed info about current client")
         print("  shell                      - Enter interactive shell mode with current client")
+        print("  disconnect <id>            - Disconnect and remove a client")
         print("  upload <local> <remote>    - Upload a file to the client")
         print("  download <remote>          - Download a file from the client")
         print("  exit                       - Exit the command interface")

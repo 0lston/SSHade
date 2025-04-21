@@ -15,17 +15,44 @@ class SSHServerInterface(paramiko.ServerInterface):
     
     def __init__(self, config: dict):
         self.config = config
-        
+        self.pty_enabled = False
+        self.term_settings = None
+
     def check_channel_request(self, kind, chanid):
         if kind == 'session':
             return paramiko.OPEN_SUCCEEDED
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
     
     def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
-        # Accept PTY request
-        print(f"Client requested PTY: {term} {width}x{height}")
+        """
+        Handle PTY request with proper terminal settings
+        Args:
+            term: Terminal type (e.g., 'xterm')
+            width: Terminal width in characters
+            height: Terminal height in characters
+            pixelwidth: Terminal width in pixels
+            pixelheight: Terminal height in pixels
+            modes: Terminal modes dictionary
+        """
+        self.pty_enabled = True
+        self.term_settings = {
+            'term': term,
+            'width': width,
+            'height': height,
+            'pixelwidth': pixelwidth,
+            'pixelheight': pixelheight,
+            'modes': modes
+        }
+        logger.info(f"PTY requested: {term} ({width}x{height} chars, {pixelwidth}x{pixelheight} pixels)")
         return True
-    
+
+    def check_channel_shell_request(self, channel):
+        """Handle shell requests for PTY sessions"""
+        if self.pty_enabled:
+            logger.info("Shell request accepted for PTY session")
+            return True
+        return False
+        
     def check_auth_password(self, username, password):
         if (username == self.config['username'] and 
             password == self.config['password']):
@@ -118,33 +145,45 @@ class SSHServer(BaseServer):
                     logger.error(f"Error in accept loop: {e}")
     
     def _handle_connection(self, client_socket, addr: Tuple[str, int]):
-        """Handle a new client connection"""
-        logger.info(f"New SSH connection from {addr[0]}:{addr[1]}")
-        
-        try:
-            transport = paramiko.Transport(client_socket)
-            transport.add_server_key(self.host_key)
+            """Handle a new client connection with PTY support"""
+            logger.info(f"New SSH connection from {addr[0]}:{addr[1]}")
             
-            server_interface = SSHServerInterface(self.config)
-            transport.start_server(server=server_interface)
-            
-            channel = transport.accept(20)
-            if channel is None:
-                logger.error(f"No channel established from {addr[0]}:{addr[1]}")
-                return
-            
-            # Receive client info
-            client_info = channel.recv(1024).decode(errors='replace')
-            logger.info(f"Client info received: {client_info}")
-            
-            # Create a new client session
-            client = ClientSession(channel, client_info, addr, 'ssh')
-            
-            # Register the client
-            self.add_client(client)
-            
-            # Send acknowledgment
-            channel.send(' ')
-            
-        except Exception as e:
-            logger.error(f"Error handling connection: {e}")
+            try:
+                transport = paramiko.Transport(client_socket)
+                transport.add_server_key(self.host_key)
+                
+                server_interface = SSHServerInterface(self.config)
+                transport.start_server(server=server_interface)
+                
+                channel = transport.accept(20)
+                if channel is None:
+                    logger.error(f"No channel established from {addr[0]}:{addr[1]}")
+                    return
+
+                # Handle PTY-specific setup
+                if server_interface.pty_enabled:
+                    channel.get_pty(**server_interface.term_settings)
+                    channel.invoke_shell()
+                    
+                # Receive client info
+                client_info = channel.recv(1024).decode(errors='replace')
+                logger.info(f"Client info received: {client_info}")
+                
+                # Create a new client session with PTY info
+                client = ClientSession(
+                    channel=channel,
+                    client_info=client_info,
+                    addr=addr,
+                    transport_type='ssh',
+                    pty_enabled=server_interface.pty_enabled,
+                    term_settings=server_interface.term_settings
+                )
+                
+                # Register the client
+                self.add_client(client)
+                
+                # Send acknowledgment
+                channel.send(' ')
+                
+            except Exception as e:
+                logger.error(f"Error handling connection: {e}")
