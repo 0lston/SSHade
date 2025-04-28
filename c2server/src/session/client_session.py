@@ -9,6 +9,7 @@ from typing import Tuple, Optional, Dict, Any, List
 import json
 import time
 import uuid
+import paramiko
 
 logger = logging.getLogger('c2.session')
 
@@ -98,14 +99,16 @@ class PTYHandler:
 class ClientSession:
     """Represents a connected client session"""
     
-    def __init__(self, channel, client_info: str, addr: Tuple[str, int], transport_type: str, 
+    def __init__(self, channel, client_info: str, addr: Tuple[str, int], 
+                 transport_type: str, config: dict,  # Add config parameter
                  pty_enabled: bool = False, term_settings: Dict = None):
         self.id = str(uuid.uuid4())
         self.channel = channel
         self.client_info = client_info
         self.addr = addr
         self.is_active = True
-        self.transport_type = transport_type  # 'ssh', 'http', etc.
+        self.transport_type = transport_type
+        self.config = config  # Store config
         self.hostname = None
         self.pty_enabled = pty_enabled
         self.term_settings = term_settings or {}
@@ -232,8 +235,8 @@ class ClientSession:
                 
             if self.transport_type == 'ssh':
                 return self._send_ssh_command(command)
-            elif self.transport_type == 'http':
-                return self._send_http_command(command)
+            # elif self.transport_type == 'http':
+            #     return self._send_http_command(command)
             else:
                 return f"Error: Unsupported transport type: {self.transport_type}"
         except Exception as e:
@@ -275,17 +278,6 @@ class ClientSession:
                 
         except Exception as e:
             logger.error(f"SSH command error: {e}")
-            self.is_active = False
-            raise
-    
-    def _send_http_command(self, command: str) -> str:
-        """Send command via HTTP channel"""
-        # This is a placeholder for the HTTP implementation
-        # The actual implementation would depend on how the HTTP transport works
-        try:
-            return self.channel.send_command(command)
-        except Exception as e:
-            logger.error(f"HTTP command error: {e}")
             self.is_active = False
             raise
     
