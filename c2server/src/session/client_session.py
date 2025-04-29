@@ -104,6 +104,7 @@ class ClientSession:
                  pty_enabled: bool = False, term_settings: Dict = None):
         self.id = str(uuid.uuid4())
         self.channel = channel
+        self.transport = channel.get_transport()
         self.client_info = client_info
         self.addr = addr
         self.is_active = True

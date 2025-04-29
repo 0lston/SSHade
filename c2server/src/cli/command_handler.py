@@ -51,10 +51,8 @@ class CommandHandler:
                         break
 
                     cmd = input()
-                    # if cmd.lower() == "exit":
-                    #     break
 
-                    if cmd == '\x03':  # Ctrl+C received
+                    if cmd == '\x03':
                         if client.pty_enabled:
                             client.channel.send(b'\x03')
                         continue
@@ -212,10 +210,10 @@ class CommandHandler:
             self._handle_upload(args[1], args[2])
                 
         elif cmd == "download":
-            if len(args) < 2:
-                print("Usage: download <remote_file>")
-                return
-            self._handle_download(args[1])
+            # if len(args) < 2:
+            #     print("Usage: download <remote_file>")
+            #     return
+            self._handle_download()
             
         # Send command to client
         else:
@@ -407,22 +405,24 @@ class CommandHandler:
             self.in_shell = False
             print(f"\n", end="", flush=True)
     
-    def _handle_upload(self, local_path: str, remote_path: str):
-        """Handle file upload command"""
-        if not self.current_client_id or self.current_client_id not in self.clients:
-            print("No client selected")
-            return
+    # def _handle_upload(self, local_path: str, remote_path: str):
+    #     """Handle file upload command"""
+    #     if not self.current_client_id or self.current_client_id not in self.clients:
+    #         print("No client selected")
+    #         return
             
-        client = self.clients[self.current_client_id]
-        success, message = self.file_transfer.upload_file(client, local_path, remote_path)
-        print(message)
+    #     client = self.clients[self.current_client_id]
+    #     success, message = self.file_transfer.upload_file(client, local_path, remote_path)
+    #     print(message)
 
-    def _handle_download(self, remote_path: str):
+    def _handle_download(self):
+
         """Handle file download command"""
         if not self.current_client_id or self.current_client_id not in self.clients:
             print("No client selected")
             return
             
         client = self.clients[self.current_client_id]
-        success, message, _ = self.file_transfer.download_file(client, remote_path)
-        print(message)
+        self.file_transfer._create_sftp_connection(client)
+        # success, message, _ = self.file_transfer.download_file(client, remote_path)
+        # print(message)
