@@ -58,35 +58,3 @@ class FileTransfer:
             if transport:
                 transport.close()
             return None, None
-
-    def upload_file(self, client: ClientSession, local: str, remote: str) -> Tuple[bool,str]:
-        t, sftp = self._create_sftp_connection(client)
-        if not sftp:
-            return False, "Could not open SFTP"
-        try:
-            sftp.put(local, remote)
-            return True, f"Uploaded to {remote}"
-        except Exception as e:
-            return False, str(e)
-        finally:
-            sftp.close()
-            t.close()
-            client.send_command("!sftp stop")
-
-    def download_file(self, client: ClientSession, remote: str) -> Tuple[bool,str,str]:
-        t, sftp = self._create_sftp_connection(client)
-        if not sftp:
-            return False, "Could not open SFTP", ""
-
-        try:
-            local_dir = os.path.join(self.download_dir, client.id)
-            os.makedirs(local_dir, exist_ok=True)
-            local_path = os.path.join(local_dir, os.path.basename(remote))
-            sftp.get(remote, local_path)
-            return True, f"Downloaded to {local_path}", local_path
-        except Exception as e:
-            return False, str(e), ""
-        finally:
-            sftp.close()
-            t.close()
-            client.send_command("!sftp stop")

