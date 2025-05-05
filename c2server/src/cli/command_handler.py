@@ -203,18 +203,6 @@ class CommandHandler:
         elif cmd == "shell":
             self._interactive_shell()
             
-        elif cmd == "upload":
-            if len(args) < 3:
-                print("Usage: upload <local_file> <remote_path>")
-                return
-            self._handle_upload(args[1], args[2])
-                
-        elif cmd == "download":
-            # if len(args) < 2:
-            #     print("Usage: download <remote_file>")
-            #     return
-            self._handle_download()
-            
         # Send command to client
         else:
             pass
@@ -227,8 +215,6 @@ class CommandHandler:
         print("  info                       - Show detailed info about current client")
         print("  shell                      - Enter interactive shell mode with current client")
         print("  disconnect <id>            - Disconnect and remove a client")
-        print("  upload <local> <remote>    - Upload a file to the client")
-        print("  download <remote>          - Download a file from the client")
         print("  quit                       - Exit the command interface")
         print("  help                       - Show this help message")
         print("  <command>                  - Send a command to the current client")
@@ -405,24 +391,3 @@ class CommandHandler:
             self.in_shell = False
             print(f"\n", end="", flush=True)
     
-    # def _handle_upload(self, local_path: str, remote_path: str):
-    #     """Handle file upload command"""
-    #     if not self.current_client_id or self.current_client_id not in self.clients:
-    #         print("No client selected")
-    #         return
-            
-    #     client = self.clients[self.current_client_id]
-    #     success, message = self.file_transfer.upload_file(client, local_path, remote_path)
-    #     print(message)
-
-    def _handle_download(self):
-
-        """Handle file download command"""
-        if not self.current_client_id or self.current_client_id not in self.clients:
-            print("No client selected")
-            return
-            
-        client = self.clients[self.current_client_id]
-        self.file_transfer._create_sftp_connection(client)
-        # success, message, _ = self.file_transfer.download_file(client, remote_path)
-        # print(message)

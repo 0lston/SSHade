@@ -33,6 +33,8 @@ class SSHServerInterface(paramiko.ServerInterface):
             return paramiko.OPEN_SUCCEEDED
         if kind == 'forwarded-tcpip':
             return paramiko.OPEN_SUCCEEDED
+        if kind == 'direct-tcpip':
+            return paramiko.OPEN_SUCCEEDED
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_port_forward_request(self, addr: str, port: int):
@@ -288,3 +290,4 @@ class SSHServer(BaseServer):
             channel.send(' ')
         except Exception as e:
             logger.error(f"Error handling connection: {e}")
+            
