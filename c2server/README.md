@@ -4,9 +4,8 @@ A command and control server with multiple transport mechanisms (SSH, HTTP) for 
 
 ## Features
 
-- Multiple transport mechanisms:
+- transport mechanisms:
   - SSH-based communication
-  - HTTP-based communication
 - Interactive command line interface
 - File upload and download capabilities
 - Support for multiple concurrent clients
@@ -14,10 +13,6 @@ A command and control server with multiple transport mechanisms (SSH, HTTP) for 
 
 ## Setup
 
-### Requirements
-
-- Python 3.8+
-- Docker (optional)
 
 ### Installation
 
@@ -93,12 +88,7 @@ docker attach c2server_c2server_1
 
 ## Extending the Server
 
-### Adding a New Transport
-
-1. Create a new file in `src/server/` (e.g., `dns_server.py`)
-2. Implement the transport by extending `BaseServer`
-3. Add the transport to the list of available transports in `config.py`
-4. Update `main.py` to initialize the new transport
+to-do
 
 ### Modifying the CLI
 
