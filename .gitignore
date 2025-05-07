@@ -2,4 +2,8 @@
 archive/
 c2server/logs/
 c2server/data/
+# Python cache
 __pycache__
+*.pyc
+*.pyo
+*.pyd
