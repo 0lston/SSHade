@@ -13,7 +13,7 @@ from .base_server import BaseServer
 logger = logging.getLogger('c2.ssh')
 
 class SSHServerInterface(paramiko.ServerInterface):
-    """SSH Server Interface implementation with reverse port forwarding and dynamic forwarding support"""
+    """SSH Server Interface implementation with local, remote, and dynamic port forwarding support"""
 
     def __init__(self, config: dict):
         super().__init__()
@@ -24,6 +24,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         self.is_sftp_connection = False
         self.forwarded_ports = {}  # (addr, port) -> (socket, thread_event)
         self.dynamic_forwards = {}  # port -> (socket, thread_event)
+        self.direct_tcpip_threads = {}  # channel_id -> thread_event
         self.transport = None
 
     def set_transport(self, transport: paramiko.Transport):
@@ -234,7 +235,7 @@ class SSHServerInterface(paramiko.ServerInterface):
             nmethods = header[1]
             methods = client_sock.recv(nmethods)
 
-            # 2) Select “no authentication” (0x00)
+            # 2) Select "no authentication" (0x00)
             client_sock.sendall(b'\x05\x00')
 
             # 3) Request: VER, CMD, RSV, ATYP
@@ -301,7 +302,6 @@ class SSHServerInterface(paramiko.ServerInterface):
                 client_sock.close()
             except:
                 pass
-
 
     def _handle_socks4(self, client_sock: socket.socket, client_addr: Tuple[str, int], stop_event: threading.Event):
         """Handle SOCKS4/4a protocol"""
@@ -406,12 +406,70 @@ class SSHServerInterface(paramiko.ServerInterface):
                                            origin: Tuple[str, int],
                                            destination: Tuple[str, int]) -> int:
         """
-        Allow the client’s direct‑tcpip (local‑ or dynamic‑forward) channels.
-        Without this, Paramiko will return “administratively prohibited.”
+        Allow the client's direct‑tcpip (local‑ or dynamic‑forward) channels.
+        This is for local port forwarding from client to server.
         """
-        logger.info(f"Allowing direct‑tcpip chan {chanid} from {origin} → {destination}")
+        src_addr, src_port = origin
+        dst_addr, dst_port = destination
+        
+        logger.info(f"Direct‑tcpip channel {chanid} requested: {src_addr}:{src_port} -> {dst_addr}:{dst_port}")
+        
+        # Create a stop event for this direct-tcpip channel
+        stop_event = threading.Event()
+        self.direct_tcpip_threads[chanid] = stop_event
+        
+        # Get the channel once it's created
+        def get_channel():
+            channel = None
+            for _ in range(10):  # Try a few times with a short delay
+                if not self.transport:
+                    return None
+                channel = self.transport.accept(timeout=1.0)
+                if channel and channel.get_id() == chanid:
+                    return channel
+            return None
+        
+        # Start a new thread to handle this forwarding request
+        threading.Thread(
+            target=self._handle_direct_tcpip,
+            args=(chanid, dst_addr, dst_port, get_channel, stop_event),
+            daemon=True
+        ).start()
+        
         return paramiko.OPEN_SUCCEEDED
-    
+
+    def _handle_direct_tcpip(self, chanid: int, dst_addr: str, dst_port: int, 
+                            get_channel_func: Callable, stop_event: threading.Event):
+        """Handle local port forwarding (direct-tcpip) requests"""
+        try:
+            # Get the channel for this direct-tcpip request
+            channel = get_channel_func()
+            if not channel:
+                logger.error(f"Failed to get channel for direct-tcpip {chanid}")
+                return
+            
+            logger.info(f"Got channel {channel.get_id()} for direct-tcpip request to {dst_addr}:{dst_port}")
+            
+            # Connect to the destination
+            dest_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                dest_sock.connect((dst_addr, dst_port))
+                logger.info(f"Connected to destination {dst_addr}:{dst_port} for direct-tcpip forwarding")
+                
+                # Now tunnel data between the channel and destination socket
+                self._tunnel_data(dest_sock, channel, stop_event)
+                
+            except Exception as e:
+                logger.error(f"Failed to connect to {dst_addr}:{dst_port}: {e}")
+                channel.close()
+                dest_sock.close()
+                
+        except Exception as e:
+            logger.error(f"Error handling direct-tcpip channel {chanid}: {e}")
+        finally:
+            # Clean up
+            if chanid in self.direct_tcpip_threads:
+                del self.direct_tcpip_threads[chanid]
 
     def check_channel_shell_request(self, channel):
         logger.info("Shell request accepted")
@@ -432,6 +490,104 @@ class SSHServerInterface(paramiko.ServerInterface):
 
     def get_allowed_auths(self, username: str) -> str:
         return 'password'
+
+class SSHServer(BaseServer):
+    """SSH transport implementation for C2 server"""
+
+    def __init__(self, config: dict, client_connected_callback: Callable = None):
+        super().__init__(config, client_connected_callback)
+        self.server_socket = None
+        self.host_key = None
+        self._load_host_key()
+
+    def _load_host_key(self):
+        key_path = self.config['host_key']
+        try:
+            if not os.path.exists(key_path):
+                key = paramiko.RSAKey.generate(2048)
+                key.write_private_key_file(key_path)
+                self.host_key = key
+            else:
+                self.host_key = paramiko.RSAKey(filename=key_path)
+            logger.info(f"Loaded host key from {key_path}")
+        except Exception as e:
+            logger.error(f"Failed to load host key: {e}")
+            raise
+
+    def start(self):
+        if self.running:
+            logger.warning("SSH server already running")
+            return
+        try:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((self.config['bind_address'], self.config['ssh_port']))
+            self.server_socket.listen(5)
+            self.running = True
+            logger.info(f"SSH server listening on {self.config['bind_address']}:{self.config['ssh_port']}")
+            threading.Thread(target=self._accept_connections, daemon=True).start()
+        except Exception as e:
+            logger.error(f"Failed to start SSH server: {e}")
+            if self.server_socket:
+                self.server_socket.close()
+            raise
+
+    def stop(self):
+        self.running = False
+        if self.server_socket:
+            self.server_socket.close()
+            self.server_socket = None
+        logger.info("SSH server stopped")
+
+    def _accept_connections(self):
+        while self.running:
+            try:
+                client_socket, addr = self.server_socket.accept()
+                threading.Thread(target=self._handle_connection, args=(client_socket, addr), daemon=True).start()
+            except OSError:
+                break
+            except Exception as e:
+                logger.error(f"Error in accept loop: {e}")
+
+    def _handle_connection(self, client_socket: socket.socket, addr: Tuple[str, int]):
+        logger.info(f"New SSH connection from {addr[0]}:{addr[1]}")
+        try:
+            transport = paramiko.Transport(client_socket)
+            transport.add_server_key(self.host_key)
+
+            server_interface = SSHServerInterface(self.config)
+            transport.start_server(server=server_interface)
+            server_interface.set_transport(transport)
+
+            channel = transport.accept(20)
+            if channel is None:
+                logger.error(f"No channel established from {addr}")
+                return
+
+            if server_interface.is_sftp_connection or addr[0] == '127.0.0.1':
+                logger.debug("SFTP connection - skipping client session registration")
+                return
+
+            if server_interface.pty_enabled and server_interface.term_settings:
+                channel.get_pty(**server_interface.term_settings)
+                channel.invoke_shell()
+
+            client_info = channel.recv(1024).decode(errors='replace')
+            logger.info(f"Client info received: {client_info.strip()}")
+
+            client = ClientSession(
+                channel=channel,
+                client_info=client_info,
+                addr=addr,
+                config=self.config,
+                transport_type='ssh',
+                pty_enabled=server_interface.pty_enabled,
+                term_settings=server_interface.term_settings
+            )
+            self.add_client(client)
+            channel.send(' ')
+        except Exception as e:
+            logger.error(f"Error handling connection: {e}")
 
 class SSHServer(BaseServer):
     """SSH transport implementation for C2 server"""
