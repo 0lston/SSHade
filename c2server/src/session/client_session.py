@@ -56,7 +56,6 @@ class PTYHandler:
             logger.error(f"Failed to send signal {sig}: {e}")
             return False
     
-
     def read_with_timeout(self, timeout: float = 0.5) -> str:
         """Read from PTY with timeout to prevent blocking"""
         if not self.channel:
@@ -100,7 +99,7 @@ class ClientSession:
     """Represents a connected client session"""
     
     def __init__(self, channel, client_info: str, addr: Tuple[str, int], 
-                 transport_type: str, config: dict,  # Add config parameter
+                 transport_type: str, config: dict,
                  pty_enabled: bool = False, term_settings: Dict = None):
         self.id = str(uuid.uuid4())
         self.channel = channel
@@ -109,7 +108,7 @@ class ClientSession:
         self.addr = addr
         self.is_active = True
         self.transport_type = transport_type
-        self.config = config  # Store config
+        self.config = config
         self.hostname = None
         self.pty_enabled = pty_enabled
         self.term_settings = term_settings or {}
@@ -236,8 +235,6 @@ class ClientSession:
                 
             if self.transport_type == 'ssh':
                 return self._send_ssh_command(command)
-            # elif self.transport_type == 'http':
-            #     return self._send_http_command(command)
             else:
                 return f"Error: Unsupported transport type: {self.transport_type}"
         except Exception as e:
@@ -245,14 +242,14 @@ class ClientSession:
             self.is_active = False
             return f"Error: {str(e)}"
     
-    
     def _send_ssh_command(self, command: str) -> str:
         try:
             if not self.channel or not self.channel.active:
                 raise Exception("Channel not active")
 
             if self.pty_enabled:
-                command = command.rstrip('\n') + '\r\n'
+                # For empty input, send a newline character
+                command = '\r\n' if command == '' else (command.rstrip('\n') + '\r\n')
                 self.channel.send(command.encode())
                 
                 response = ''
@@ -281,6 +278,31 @@ class ClientSession:
             logger.error(f"SSH command error: {e}")
             self.is_active = False
             raise
+    
+    def handle_signal(self, sig: int) -> bool:
+        """Handle signals like Ctrl+C by sending to remote session"""
+        if not self.is_active or not self.channel or not self.channel.active:
+            return False
+            
+        try:
+            if sig == signal.SIGINT:  # Ctrl+C
+                self.channel.send(b'\x03')
+                return True
+            elif sig == signal.SIGTSTP:  # Ctrl+Z
+                self.channel.send(b'\x1a')
+                return True
+            elif sig == signal.SIGQUIT:  # Ctrl+\
+                self.channel.send(b'\x1c')
+                return True
+            elif sig == signal.SIGTERM:  # Terminate
+                self.channel.send(b'\x04')  # Ctrl+D / EOF
+                return True
+            else:
+                logger.warning(f"Unsupported signal for client: {sig}")
+                return False
+        except Exception as e:
+            logger.error(f"Error handling signal {sig}: {e}")
+            return False
     
     def __str__(self):
         return f"{self.username}@{self.hostname} ({self.addr[0]}:{self.addr[1]}) [{self.transport_type}]"

@@ -44,12 +44,10 @@ Command line arguments:
 - `--config`: Path to config file
 - `--bind-address`: Bind address (default: 0.0.0.0)
 - `--ssh-port`: SSH listen port (default: 2222)
-- `--http-port`: HTTP listen port (default: 8080)
 - `--host-key`: Host key file (default: data/keys/server_key)
 - `--username`: Auth username (default: implant)
 - `--password`: Auth password (default: implant)
 - `--log-level`: Logging level (default: INFO)
-- `--transports`: Enabled transport mechanisms (choices: ssh, http)
 
 ### Running with Docker
 
@@ -68,8 +66,6 @@ docker attach c2server_c2server_1
 - `use <id>`: Switch to a specific client
 - `info`: Show detailed info about current client
 - `shell`: Enter interactive shell mode with current client
-- `upload <local> <remote>`: Upload a file to the client
-- `download <remote>`: Download a file from the client
 - `help`: Show help message
 - `exit`: Exit the command interface
 - Any other command will be sent to the current client

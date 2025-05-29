@@ -11,6 +11,6 @@ class BackdoormanBanner:
 
      🕵️  Welcome to Backdoorman — Your guest just walked in.
 
-     [🔐 Reverse SSH | 🧠 Operator Shell | 📂 SFTP (kinda) ]
+     [🔐 Reverse SSH | 🧠 Operator Shell | 📂 SFTP ]
         """
         print(banner)

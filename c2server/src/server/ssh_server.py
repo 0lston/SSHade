@@ -12,34 +12,19 @@ from .base_server import BaseServer
 
 logger = logging.getLogger('c2.ssh')
 
-class SSHServerInterface(paramiko.ServerInterface):
-    """SSH Server Interface implementation with local, remote, and dynamic port forwarding support"""
-
-    def __init__(self, config: dict):
-        super().__init__()
-        self.config = config
-        self.pty_enabled = False
-        self.term_settings = None
-        self.event = threading.Event()
-        self.is_sftp_connection = False
+class SSHForwardingHandler:
+    """Handles forwarding functionality for SSH connections"""
+    
+    def __init__(self, transport: Optional[paramiko.Transport] = None):
+        self.transport = transport
         self.forwarded_ports = {}  # (addr, port) -> (socket, thread_event)
         self.dynamic_forwards = {}  # port -> (socket, thread_event)
         self.direct_tcpip_threads = {}  # channel_id -> thread_event
-        self.transport = None
-
+    
     def set_transport(self, transport: paramiko.Transport):
         """Store transport to open forwarded channels"""
         self.transport = transport
-
-    def check_channel_request(self, kind: str, chanid: int) -> int:
-        if kind == 'session':
-            return paramiko.OPEN_SUCCEEDED
-        if kind == 'forwarded-tcpip':
-            return paramiko.OPEN_SUCCEEDED
-        if kind == 'direct-tcpip':
-            return paramiko.OPEN_SUCCEEDED
-        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
-
+    
     def check_port_forward_request(self, addr: str, port: int):
         """Handle remote (reverse) port forwarding requests"""
         logger.info(f"Port forward request from implant: {addr}:{port}")
@@ -76,7 +61,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         except Exception as e:
             logger.error(f"Failed to bind forwarded port {addr}:{port}: {e}")
             return False
-
+    
     def check_dynamic_port_forward_request(self, addr: str, port: int) -> bool:
         """
         Allow the client to ask the server to listen on (addr,port) for a SOCKS proxy.
@@ -96,7 +81,7 @@ class SSHServerInterface(paramiko.ServerInterface):
             daemon=True
         ).start()
         return True
-
+    
     def cancel_port_forward_request(self, addr: str, port: int):
         """Cancel a forwarded port and clean up resources"""
         logger.info(f"Canceling port forward for {addr}:{port}")
@@ -116,7 +101,7 @@ class SSHServerInterface(paramiko.ServerInterface):
             logger.info(f"Closed forwarded port {addr}:{port}")
         except Exception as e:
             logger.error(f"Error closing forwarded port: {e}")
-
+    
     def cancel_dynamic_port_forward_request(self, port: int):
         """Cancel a dynamic forwarded port and clean up resources"""
         logger.info(f"Canceling dynamic port forward for port {port}")
@@ -136,7 +121,7 @@ class SSHServerInterface(paramiko.ServerInterface):
             logger.info(f"Closed dynamic forwarded port {port}")
         except Exception as e:
             logger.error(f"Error closing dynamic forwarded port: {e}")
-
+    
     def _forward_handler(self, sock: socket.socket, addr: str, port: int, stop_event: threading.Event):
         """Accept connections on forwarded port and open channel back to client"""
         logger.info(f"Forward handler started for {addr}:{port}")
@@ -181,7 +166,7 @@ class SSHServerInterface(paramiko.ServerInterface):
                 break
                 
         logger.info(f"Forward handler stopped for {addr}:{port}")
-
+    
     def _dynamic_forward_handler(self, sock: socket.socket, port: int, stop_event: threading.Event):
         """
         Accept incoming SOCKS connections on the server-side port,
@@ -193,13 +178,17 @@ class SSHServerInterface(paramiko.ServerInterface):
             try:
                 client_sock, client_addr = sock.accept()
                 threading.Thread(
-                    target=self._handle_socks5,
+                    target=self._handle_socks_connection,
                     args=(client_sock, client_addr, stop_event),
                     daemon=True
                 ).start()
             except socket.timeout:
                 continue
-
+            except Exception as e:
+                if not stop_event.is_set():
+                    logger.error(f"Error in dynamic forward handler: {e}")
+                break
+    
     def _handle_socks_connection(self, client_sock: socket.socket, client_addr: Tuple[str, int], stop_event: threading.Event):
         """Handle SOCKS protocol and establish dynamic forwarding"""
         try:
@@ -220,7 +209,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         except Exception as e:
             logger.error(f"Error handling SOCKS connection: {e}")
             client_sock.close()
-
+    
     def _handle_socks5(self, client_sock: socket.socket, client_addr: Tuple[str,int], stop_event: threading.Event):
         """
         Handle a SOCKS5 CONNECT request on the server side, then open a
@@ -302,7 +291,7 @@ class SSHServerInterface(paramiko.ServerInterface):
                 client_sock.close()
             except:
                 pass
-
+    
     def _handle_socks4(self, client_sock: socket.socket, client_addr: Tuple[str, int], stop_event: threading.Event):
         """Handle SOCKS4/4a protocol"""
         try:
@@ -367,44 +356,38 @@ class SSHServerInterface(paramiko.ServerInterface):
         except Exception as e:
             logger.error(f"Error in SOCKS4 handler: {e}")
             client_sock.close()
-
+    
     def _tunnel_data(self, sock: socket.socket, channel: paramiko.Channel, stop_event: threading.Event):
         """Bi-directional tunnel between socket and SSH channel"""
         try:
-            while not stop_event.is_set():
+            sock.setblocking(False)
+            channel.setblocking(False)
+            
+            while not stop_event.is_set() and channel.active:
                 r, w, x = select.select([sock, channel], [], [], 0.5)
                 if sock in r:
-                    data = sock.recv(1024)
+                    data = sock.recv(4096)
                     if not data:
                         break
                     channel.send(data)
                 if channel in r:
-                    data = channel.recv(1024)
+                    data = channel.recv(4096)
                     if not data:
                         break
                     sock.send(data)
         except Exception as e:
             logger.error(f"Error in tunnel: {e}")
         finally:
-            sock.close()
-            channel.close()
-
-    def check_channel_pty_request(self, channel, term, width, height, width_pixels, height_pixels, modes):
-        self.pty_enabled = True
-        self.term_settings = {
-            'term': term,
-            'width': width,
-            'height': height,
-            'width_pixels': width_pixels,
-            'height_pixels': height_pixels,
-            'modes': modes
-        }
-        logger.info(f"PTY requested: {term} ({width}x{height})")
-        return True
-    
-    def check_channel_direct_tcpip_request(self, chanid: int,
-                                           origin: Tuple[str, int],
-                                           destination: Tuple[str, int]) -> int:
+            try:
+                sock.close()
+            except:
+                pass
+            try:
+                channel.close()
+            except:
+                pass
+            
+    def handle_direct_tcpip_request(self, chanid: int, origin: Tuple[str, int], destination: Tuple[str, int]) -> int:
         """
         Allow the client's direct‑tcpip (local‑ or dynamic‑forward) channels.
         This is for local port forwarding from client to server.
@@ -437,7 +420,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         ).start()
         
         return paramiko.OPEN_SUCCEEDED
-
+    
     def _handle_direct_tcpip(self, chanid: int, dst_addr: str, dst_port: int, 
                             get_channel_func: Callable, stop_event: threading.Event):
         """Handle local port forwarding (direct-tcpip) requests"""
@@ -471,6 +454,65 @@ class SSHServerInterface(paramiko.ServerInterface):
             if chanid in self.direct_tcpip_threads:
                 del self.direct_tcpip_threads[chanid]
 
+
+class SSHServerInterface(paramiko.ServerInterface):
+    """SSH Server Interface implementation with port forwarding support"""
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+        self.pty_enabled = False
+        self.term_settings = None
+        self.event = threading.Event()
+        self.is_sftp_connection = False
+        self.transport = None
+        self.forwarding_handler = SSHForwardingHandler()
+
+    def set_transport(self, transport: paramiko.Transport):
+        """Store transport to open forwarded channels"""
+        self.transport = transport
+        self.forwarding_handler.set_transport(transport)
+
+    def check_channel_request(self, kind: str, chanid: int) -> int:
+        if kind == 'session':
+            return paramiko.OPEN_SUCCEEDED
+        if kind == 'forwarded-tcpip':
+            return paramiko.OPEN_SUCCEEDED
+        if kind == 'direct-tcpip':
+            return paramiko.OPEN_SUCCEEDED
+        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+
+    def check_port_forward_request(self, addr: str, port: int):
+        """Handle remote (reverse) port forwarding requests"""
+        return self.forwarding_handler.check_port_forward_request(addr, port)
+
+    def check_dynamic_port_forward_request(self, addr: str, port: int) -> bool:
+        """Handle dynamic port forwarding requests (SOCKS proxy)"""
+        return self.forwarding_handler.check_dynamic_port_forward_request(addr, port)
+
+    def cancel_port_forward_request(self, addr: str, port: int):
+        """Cancel a forwarded port and clean up resources"""
+        self.forwarding_handler.cancel_port_forward_request(addr, port)
+
+    def check_channel_pty_request(self, channel, term, width, height, width_pixels, height_pixels, modes):
+        self.pty_enabled = True
+        self.term_settings = {
+            'term': term,
+            'width': width,
+            'height': height,
+            'width_pixels': width_pixels,
+            'height_pixels': height_pixels,
+            'modes': modes
+        }
+        logger.info(f"PTY requested: {term} ({width}x{height})")
+        return True
+    
+    def check_channel_direct_tcpip_request(self, chanid: int,
+                                           origin: Tuple[str, int],
+                                           destination: Tuple[str, int]) -> int:
+        """Handle direct-tcpip requests (local port forwarding)"""
+        return self.forwarding_handler.handle_direct_tcpip_request(chanid, origin, destination)
+
     def check_channel_shell_request(self, channel):
         logger.info("Shell request accepted")
         return True
@@ -483,6 +525,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         return False
 
     def check_auth_password(self, username: str, password: str) -> int:
+        """Authenticate user with username and password"""
         if username == self.config['username'] and password == self.config['password']:
             return paramiko.AUTH_SUCCESSFUL
         logger.warning(f"Authentication failed for user: {username}")
@@ -490,6 +533,7 @@ class SSHServerInterface(paramiko.ServerInterface):
 
     def get_allowed_auths(self, username: str) -> str:
         return 'password'
+
 
 class SSHServer(BaseServer):
     """SSH transport implementation for C2 server"""
@@ -501,6 +545,7 @@ class SSHServer(BaseServer):
         self._load_host_key()
 
     def _load_host_key(self):
+        """Load or generate SSH host key"""
         key_path = self.config['host_key']
         try:
             if not os.path.exists(key_path):
@@ -515,6 +560,7 @@ class SSHServer(BaseServer):
             raise
 
     def start(self):
+        """Start the SSH server"""
         if self.running:
             logger.warning("SSH server already running")
             return
@@ -533,6 +579,7 @@ class SSHServer(BaseServer):
             raise
 
     def stop(self):
+        """Stop the SSH server"""
         self.running = False
         if self.server_socket:
             self.server_socket.close()
@@ -540,6 +587,7 @@ class SSHServer(BaseServer):
         logger.info("SSH server stopped")
 
     def _accept_connections(self):
+        """Accept incoming SSH connections"""
         while self.running:
             try:
                 client_socket, addr = self.server_socket.accept()
@@ -550,6 +598,7 @@ class SSHServer(BaseServer):
                 logger.error(f"Error in accept loop: {e}")
 
     def _handle_connection(self, client_socket: socket.socket, addr: Tuple[str, int]):
+        """Handle a new SSH connection"""
         logger.info(f"New SSH connection from {addr[0]}:{addr[1]}")
         try:
             transport = paramiko.Transport(client_socket)
