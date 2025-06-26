@@ -62,25 +62,6 @@ class SSHForwardingHandler:
             logger.error(f"Failed to bind forwarded port {addr}:{port}: {e}")
             return False
     
-    def check_dynamic_port_forward_request(self, addr: str, port: int) -> bool:
-        """
-        Allow the client to ask the server to listen on (addr,port) for a SOCKS proxy.
-        Paramiko will then invoke _dynamic_forward_handler for you.
-        """
-        logger.info(f"Dynamic port forward request from implant: {addr}:{port}")
-        # bind and listen just like check_port_forward_request
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((addr, port))
-        sock.listen(5)
-        stop_event = threading.Event()
-        self.dynamic_forwards[port] = (sock, stop_event)
-        threading.Thread(
-            target=self._dynamic_forward_handler,
-            args=(sock, port, stop_event),
-            daemon=True
-        ).start()
-        return True
     
     def cancel_port_forward_request(self, addr: str, port: int):
         """Cancel a forwarded port and clean up resources"""
@@ -102,25 +83,6 @@ class SSHForwardingHandler:
         except Exception as e:
             logger.error(f"Error closing forwarded port: {e}")
     
-    def cancel_dynamic_port_forward_request(self, port: int):
-        """Cancel a dynamic forwarded port and clean up resources"""
-        logger.info(f"Canceling dynamic port forward for port {port}")
-        
-        if port not in self.dynamic_forwards:
-            logger.warning(f"No dynamic forwarding found for port {port}")
-            return
-            
-        sock, stop_event = self.dynamic_forwards.pop(port)
-        
-        # Signal the thread to stop
-        stop_event.set()
-        
-        # Close the socket to unblock accept()
-        try:
-            sock.close()
-            logger.info(f"Closed dynamic forwarded port {port}")
-        except Exception as e:
-            logger.error(f"Error closing dynamic forwarded port: {e}")
     
     def _forward_handler(self, sock: socket.socket, addr: str, port: int, stop_event: threading.Event):
         """Accept connections on forwarded port and open channel back to client"""
@@ -166,196 +128,6 @@ class SSHForwardingHandler:
                 break
                 
         logger.info(f"Forward handler stopped for {addr}:{port}")
-    
-    def _dynamic_forward_handler(self, sock: socket.socket, port: int, stop_event: threading.Event):
-        """
-        Accept incoming SOCKS connections on the server-side port,
-        perform the SOCKS handshake, then open a *forwarded-tcpip* channel
-        back to the client for each CONNECT request.
-        """
-        sock.settimeout(1.0)
-        while not stop_event.is_set():
-            try:
-                client_sock, client_addr = sock.accept()
-                threading.Thread(
-                    target=self._handle_socks_connection,
-                    args=(client_sock, client_addr, stop_event),
-                    daemon=True
-                ).start()
-            except socket.timeout:
-                continue
-            except Exception as e:
-                if not stop_event.is_set():
-                    logger.error(f"Error in dynamic forward handler: {e}")
-                break
-    
-    def _handle_socks_connection(self, client_sock: socket.socket, client_addr: Tuple[str, int], stop_event: threading.Event):
-        """Handle SOCKS protocol and establish dynamic forwarding"""
-        try:
-            # Read SOCKS version
-            version = client_sock.recv(1)
-            if not version:
-                logger.warning("Client disconnected before sending SOCKS version")
-                client_sock.close()
-                return
-                
-            if version[0] == 5:  # SOCKS5
-                self._handle_socks5(client_sock, client_addr, stop_event)
-            elif version[0] == 4:  # SOCKS4
-                self._handle_socks4(client_sock, client_addr, stop_event)
-            else:
-                logger.warning(f"Unsupported SOCKS version: {version[0]}")
-                client_sock.close()
-        except Exception as e:
-            logger.error(f"Error handling SOCKS connection: {e}")
-            client_sock.close()
-    
-    def _handle_socks5(self, client_sock: socket.socket, client_addr: Tuple[str,int], stop_event: threading.Event):
-        """
-        Handle a SOCKS5 CONNECT request on the server side, then open a
-        forwarded-tcpip channel back to the implant for the requested dst.
-        """
-        try:
-            # 1) Greeting: VER, NMETHODS
-            header = client_sock.recv(2)
-            if len(header) < 2 or header[0] != 0x05:
-                client_sock.close()
-                return
-            nmethods = header[1]
-            methods = client_sock.recv(nmethods)
-
-            # 2) Select "no authentication" (0x00)
-            client_sock.sendall(b'\x05\x00')
-
-            # 3) Request: VER, CMD, RSV, ATYP
-            req = client_sock.recv(4)
-            if len(req) < 4:
-                client_sock.close()
-                return
-            ver, cmd, rsv, atyp = req
-            if ver != 0x05 or cmd != 0x01:   # only CONNECT supported
-                client_sock.sendall(b'\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00')
-                client_sock.close()
-                return
-
-            # 4) Read DST.ADDR
-            if atyp == 0x01:           # IPv4
-                addr_bytes = client_sock.recv(4)
-                dst_addr = socket.inet_ntoa(addr_bytes)
-            elif atyp == 0x03:         # domain name
-                length = client_sock.recv(1)[0]
-                addr_bytes = client_sock.recv(length)
-                dst_addr = addr_bytes.decode('ascii')
-            elif atyp == 0x04:         # IPv6
-                addr_bytes = client_sock.recv(16)
-                dst_addr = socket.inet_ntop(socket.AF_INET6, addr_bytes)
-            else:
-                client_sock.sendall(b'\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00')
-                client_sock.close()
-                return
-
-            # 5) Read DST.PORT
-            port_bytes = client_sock.recv(2)
-            dst_port = struct.unpack('!H', port_bytes)[0]
-
-            logger.info(f"SOCKS5 CONNECT request for {dst_addr}:{dst_port}")
-
-            # 6) Open a forwarded-tcpip channel back to the implant
-            channel = self.transport.open_forwarded_tcpip_channel(
-                (dst_addr, dst_port),
-                client_addr
-            )
-            if channel is None:
-                # host unreachable
-                client_sock.sendall(b'\x05\x04\x00\x01\x00\x00\x00\x00\x00\x00')
-                client_sock.close()
-                return
-
-            # 7) Send success reply: VER, REP=0, RSV, ATYP, BND.ADDR, BND.PORT
-            #    We echo the DST as our BND
-            reply = b'\x05\x00\x00'
-            if atyp == 0x01:
-                reply += b'\x01' + addr_bytes + port_bytes
-            elif atyp == 0x03:
-                reply += b'\x03' + bytes([len(addr_bytes)]) + addr_bytes + port_bytes
-            else:
-                reply += b'\x04' + addr_bytes + port_bytes
-            client_sock.sendall(reply)
-
-            # 8) Tunnel data between client_sock and the SSH channel
-            self._tunnel_data(client_sock, channel, stop_event)
-
-        except Exception as e:
-            logger.error(f"Error in SOCKS5 handler: {e}")
-            try:
-                client_sock.close()
-            except:
-                pass
-    
-    def _handle_socks4(self, client_sock: socket.socket, client_addr: Tuple[str, int], stop_event: threading.Event):
-        """Handle SOCKS4/4a protocol"""
-        try:
-            # Already read the version byte, now read command
-            cmd = client_sock.recv(1)[0]
-            
-            if cmd != 1:  # Only support CONNECT command
-                logger.warning(f"Unsupported SOCKS4 command: {cmd}")
-                client_sock.sendall(b'\x00\x5b\x00\x00\x00\x00\x00\x00')  # Request rejected
-                client_sock.close()
-                return
-            
-            # Get destination port
-            dst_port = struct.unpack('!H', client_sock.recv(2))[0]
-            
-            # Get IPv4 address
-            addr_bytes = client_sock.recv(4)
-            dst_addr = None
-            
-            # Check if it's SOCKS4A (if first 3 bytes are 0,0,0,x where x is non-zero)
-            if addr_bytes[0] == 0 and addr_bytes[1] == 0 and addr_bytes[2] == 0 and addr_bytes[3] != 0:
-                # SOCKS4A - domain name follows
-                # Skip user ID
-                while client_sock.recv(1) != b'\x00':
-                    pass
-                
-                # Read domain name
-                domain = b''
-                while True:
-                    c = client_sock.recv(1)
-                    if c == b'\x00':
-                        break
-                    domain += c
-                dst_addr = domain.decode('utf-8')
-            else:
-                # Regular SOCKS4
-                dst_addr = socket.inet_ntoa(addr_bytes)
-                
-                # Skip user ID
-                while client_sock.recv(1) != b'\x00':
-                    pass
-            
-            logger.info(f"SOCKS4 request to connect to {dst_addr}:{dst_port}")
-            
-            # Open direct-tcpip channel to target through the SSH connection
-            try:
-                channel = self.transport.open_channel('direct-tcpip', 
-                                                   (dst_addr, dst_port), 
-                                                   client_addr)
-                
-                # Send success response
-                client_sock.sendall(b'\x00\x5a\x00\x00\x00\x00\x00\x00')
-                
-                # Start bi-directional tunneling
-                self._tunnel_data(client_sock, channel, stop_event)
-                
-            except Exception as e:
-                logger.error(f"Failed to connect to destination: {e}")
-                client_sock.sendall(b'\x00\x5b\x00\x00\x00\x00\x00\x00')  # Request rejected
-                client_sock.close()
-                
-        except Exception as e:
-            logger.error(f"Error in SOCKS4 handler: {e}")
-            client_sock.close()
     
     def _tunnel_data(self, sock: socket.socket, channel: paramiko.Channel, stop_event: threading.Event):
         """Bi-directional tunnel between socket and SSH channel"""
@@ -483,12 +255,9 @@ class SSHServerInterface(paramiko.ServerInterface):
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_port_forward_request(self, addr: str, port: int):
+        print("hhhhhhhhhhhhh")
         """Handle remote (reverse) port forwarding requests"""
         return self.forwarding_handler.check_port_forward_request(addr, port)
-
-    def check_dynamic_port_forward_request(self, addr: str, port: int) -> bool:
-        """Handle dynamic port forwarding requests (SOCKS proxy)"""
-        return self.forwarding_handler.check_dynamic_port_forward_request(addr, port)
 
     def cancel_port_forward_request(self, addr: str, port: int):
         """Cancel a forwarded port and clean up resources"""
