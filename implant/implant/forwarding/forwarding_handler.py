@@ -12,10 +12,11 @@ class PortForwardingManager:
     def __init__(self, transport, channel):
         self.transport = transport
         self.channel = channel
-        # Now store (thread, stop_event) tuples
+        # Now store (thread, stop_event) tuples for remote and dynamic
+        # Store (thread, stop_event, server_sock) for local forwarding
         self.remote_forward_threads = {}  # port -> (thread, stop_event)
-        self.local_forward_threads = {}   # port -> (thread, stop_event)
-        self.dynamic_threads = {}         # port -> (thread, stop_event)
+        self.local_forward_threads = {}   # port -> (thread, stop_event, server_sock)
+        self.dynamic_threads = {}         # port -> (thread, stop_event, server_sock)
         self.running = True
 
     def start_remote_forwarding(self, remote_port: int, handler_factory: Callable) -> bool:
@@ -168,7 +169,7 @@ class PortForwardingManager:
 
     def start_dynamic_forwarding(self, listen_port: int) -> bool:
         if listen_port in self.dynamic_threads:
-            thread, stop_event = self.dynamic_threads[listen_port]
+            thread, stop_event, _ = self.dynamic_threads[listen_port]
             if thread.is_alive():
                 self.channel.send(f"\r\nSOCKS5 proxy already running on port {listen_port}\r\n")
                 return True
@@ -214,7 +215,7 @@ class PortForwardingManager:
                     pass
 
         thread = threading.Thread(target=accept_socks, daemon=True)
-        self.dynamic_threads[listen_port] = (thread, stop_event)
+        self.dynamic_threads[listen_port] = (thread, stop_event, server_sock)
         thread.start()
         return True
 
@@ -223,7 +224,7 @@ class PortForwardingManager:
             self.channel.send(f"\r\nNo SOCKS5 proxy active on port {listen_port}\r\n")
             return True
         try:
-            thread, stop_event = self.dynamic_threads[listen_port]
+            thread, stop_event, server_sock = self.dynamic_threads.pop(listen_port)
             stop_event.set()
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -233,7 +234,6 @@ class PortForwardingManager:
                 pass
             if thread.is_alive():
                 thread.join(2)
-            del self.dynamic_threads[listen_port]
             self.channel.send(f"\r\nStopped SOCKS5 proxy on port {listen_port}\r\n")
             return True
         except Exception as e:
