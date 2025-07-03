@@ -5,7 +5,6 @@ services:
     build: .
     ports:
       - "2222:2222"  # SSH transport
-      - "8080:8080"  # HTTP transport
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
@@ -17,4 +16,4 @@ services:
     # tty and stdin_open are needed for interactive CLI
     tty: true
     stdin_open: true
-    command: python -m src.main --transports ssh http
+    command: python -m src.main --transports ssh

@@ -87,7 +87,7 @@ class PortForwardingManager:
         try:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_sock.bind(('127.0.0.1', local_port))
+            server_sock.bind(('0.0.0.0', local_port))
             server_sock.listen(5)
             server_sock.settimeout(1)
             logging.info(f"Listening on 127.0.0.1:{local_port}")
